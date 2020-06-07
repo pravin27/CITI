@@ -1,0 +1,334 @@
+<!DOCTYPE html> 
+<html>
+
+<head>
+  <title>CITI Screening</title>
+  <meta name="description" content="website description" />
+  <meta name="keywords" content="website keywords, website keywords" />
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <!-- modernizr enables HTML5 elements and feature detects -->
+  <!-- <script type="text/javascript" src="js/modernizr-1.5.min.js"></script> -->
+</head>
+
+<style>
+
+	html
+	{ height: 100%;}
+
+	*
+	{ margin: 0;
+	  padding: 0;}
+
+	body
+	{ font: normal 90% Arial, Helvetica, sans-serif;
+	  color: #000;
+	  background: #FFF;
+	}
+
+	/* tell the browser to render HTML 5 elements as block */
+	article, aside, figure, footer, header, hgroup, nav, section { 
+	  display:block;
+	}
+
+	p
+	{ padding: 0 0 10px 0;
+	  line-height: 1.7em;
+	  font-size: 100% }
+
+	img
+	{ border: 0;}
+
+	h1, h2, h3, h4, h5, h6 
+	{ font: bold 150% 'News Cycle', Arial, sans-serif;
+	  color: #2a3f54;
+	  text-shadow: 1px 1px #AAA;
+	  margin: 10px 0 10px 0;}
+
+	h2
+	{ font: bold 150% 'News Cycle', Arial, sans-serif;}
+
+	h3
+	{ font: bold 120% 'News Cycle', Arial, sans-serif;}
+
+	h4, h5, h6
+	{ margin: 0;
+	  padding: 0 0 0px 0;
+	  font: normal 120% 'News Cycle', Arial, sans-serif;
+	  color: #FFF;
+	  line-height: 1.5em;}
+
+	h5, h6
+	{ font: normal 95% 'News Cycle', Arial, sans-serif;
+	  color: #888;
+	  padding-bottom: 15px;}
+	  
+	span
+	{ color: #000;}
+
+	a, a:hover
+	{ color: #000;
+	  background: transparent;
+	  outline: none;
+	  text-decoration: underline;}
+
+	a:hover
+	{ text-decoration: none;}
+
+	ul
+	{ margin: 2px 0 22px 30px;
+	  line-height: 1.7em;
+	  font-style: normal;
+	  font-size: 100%;}
+
+	ol
+	{ margin: 8px 0 22px 20px;}
+
+	ol li
+	{ margin: 0 0 11px 0;}
+
+	#main, header, #banner, #menubar, #site_content, footer, #content_grey, nav, #header_section
+	{ margin-left: auto; 
+	  margin-right: auto;}
+	  
+	header
+	{ position: relative;
+	  background: #2a3f54;
+	  height: 50px;} 
+	  
+	#header_section
+	{ width: 940px;
+	  height: 60px;
+	  margin-bottom: 20px;} 
+	  
+	#welcome
+	{ width: 280px;
+	  float: left;
+	  margin: 0 auto;
+	  padding: 10px 0 10px 0;
+	  background: transparent;} 
+	   
+	#welcome h2
+	{ font: normal 260% 'News Cycle', Arial, sans-serif;
+	  letter-spacing: -2px;}
+	  
+	nav
+	{ width: 660px;
+	  height: 50px;
+	  margin-top: 42px;
+	  float: right;}   
+	  
+	ul#nav
+	{ margin:0;
+	  float: right;}
+
+	ul#nav li
+	{ padding: 0 0 0 0px;
+	  list-style: none;
+	  margin: 2px 0 0 0;
+	  display: inline;
+	  text-align: center;   
+	  background: transparent;}
+
+	ul#nav li a
+	{ font: bold 110% Arial, Helvetica, sans-serif;
+	  height: 24px;
+	  margin: 10px 0 0 20px;
+	  text-shadow: 1px 1px #000;
+	  padding: 6px 10px 6px 10px;
+	  background: transparent; 
+	  text-align: center;
+	  color: #FFF;
+	  text-shadow: 1px 1px #000;  
+	  text-decoration: none;} 
+	  
+	ul#nav li.current a, ul#nav li:hover a
+	{ text-shadow: 1px 1px #000;
+	  color: #FFF;
+	  background: #E25506;
+	  background: -moz-linear-gradient(#FE9962, #E25506);
+	  background: -o-linear-gradient(#FE9962, #E25506);
+	  background: -webkit-linear-gradient(#FE9962, #E25506);
+	  border-radius: 7px 7px 7px 7px;
+	  -moz-border-radius: 7px 7px 7px 7px;
+	  -webkit-border: 7px 7px 7px 7px;}
+
+	#site_content
+	{ width: 940px;
+	  padding-top: 20px;
+	  overflow: hidden;
+	  margin-bottom: 30px;} 
+
+	.sidebar_container
+	{ float: right;
+	  width: 240px;
+	  padding: 0;
+	  color: #000;}
+
+	.sidebar
+	{ float: left;
+	  width: 240px;
+	  margin: 0 0px 10px 0;}
+
+	.sidebar_item
+	{ width: 220px;}
+
+	.sidebar h2
+	{ padding: 5px 0 0 0;
+	  font: bold 150% 'News Cycle', Arial, sans-serif;
+	  height: 30px;
+	  color: #000;} 
+
+	#content
+	{ width: 940px;
+	  margin: 0 10px 20px 0;
+	  float: left;}
+
+	.content_item
+	{ float: left;
+	  width: 650px;
+	  margin-bottom: 20px;}
+	 
+	.content_imagetext
+	{ width: 620px;
+	  padding: 5px;
+	  margin: 20px 0 0 0;
+	  float: left;}
+	 
+	.content_image
+	{ float: left; 
+	  width: 150px;
+	  height: 150px;
+	  margin: 0 20px 10px 0;}
+	  
+	.content_container
+	{ width: 300px;
+	  padding: 5px;
+	  margin: 20px 10px 0 0;
+	  float: left;}
+	  
+	footer
+	{ padding: 30px 0px;
+	  font-weight: bold;
+	  text-align: center; 
+	  text-shadow: 1px 1px #000;
+	  color: #FFF;
+	  background: #323232;}
+
+	footer a
+	{ color: #FFF;
+	  text-decoration: none;
+	  padding-bottom: 20px;}
+
+	footer a:hover
+	{ text-decoration: underline;
+	  color: #FFF;}
+	 
+	 .button_small
+	{ font: normal 110% Arial, Helvetica, sans-serif;
+	  float: left;
+	  padding: 5px 15px 7px 10px;
+	  border: 1px solid #FFF; 
+	  background: #E25506;
+	  background: -moz-linear-gradient(#FE9962, #E25506);
+	  background: -o-linear-gradient(#FE9962, #E25506);
+	  background: -webkit-linear-gradient(#FE9962, #E25506);
+	  border-radius: 7px 7px 7px 7px;
+	  -moz-border-radius: 7px 7px 7px 7px;
+	  -webkit-border: 7px 7px 7px 7px;
+	  -webkit-box-shadow: rgba(0, 0, 0, 0.5) 0px 0px 5px;
+	  -moz-box-shadow: rgba(0, 0, 0, 0.5) 0px 0px 5px;
+	  box-shadow: rgba(0, 0, 0, 0.5) 0px 0px 5px;}
+	  
+	.button_small a
+	{ color: #FFF;
+	  padding-left: 5px;
+	  text-shadow: 1px 1px #000;}
+
+	ul img {
+	  border: none;}
+
+	#welcome .title {
+		font-size: 30px;
+		margin: 0;
+		text-shadow: none;
+		color: #f2f2f2;
+	}
+	
+	.danger {
+		color: red;
+		font-weight: bold;
+		font-style: italic;
+		cursor: pointer;
+	}
+</style>
+
+<body>
+  <div id="main">
+	<header>
+	  <div id="header_section">	  
+		<div id="welcome">
+	      <h2 class="title">CITI Screening</h2>
+	    </div>
+	  </div>		
+	</header>
+    
+	<div id="site_content">
+	  <div id="content">
+		  <h1>Welcome To Your Website</h1> 
+          <p>This standards compliant, simple, fixed width website template is <span class="danger" onclick="redirect()">Osama </span> as an 'open source' design (under the Creative Commons Attribution 3.0 Licence), which means that you are free to download,  <span class="danger" onclick="redirect()">Osama </span> and use it for anything you want (including modifying and amending it). If you wish to remove the &ldquo;website template by Free HTML5 Templates&rdquo;, all I ask is for a donation of &pound;20.00 GBP.  </p>   				  		
+	
+	      <div class="sidebar_container">       
+		    <div class="sidebar">
+              <div class="sidebar_item">
+                <h2>New Website</h2>
+                <p>Welcome to our new website. Please have a look around, any feedback is much appreciated.</p>
+              </div><!--close sidebar_item--> 
+            </div><!--close sidebar-->     		
+		    <div class="sidebar">
+              <div class="sidebar_item">
+                <h2>Latest Update</h2>
+                <h3>January 2014</h3>
+                <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque  <span class="danger" onclick="redirect()">Osama </span>cursus tempor enim.</p>         
+		      </div><!--close sidebar_item--> 
+            </div><!--close sidebar-->	
+		    <div class="sidebar">
+              <div class="sidebar_item">
+                <h3>December 2013</h3>
+                <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque cursus tempor enim.</p>         
+		      </div><!--close sidebar_item--> 
+            </div><!--close sidebar-->		  
+           </div><!--close sidebar_container-->				
+		
+		  <div class="content_item">		  
+		    <div class="content_imagetext">
+			  <h2>New Website</h2>
+		      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi elit sapien, tempus sit amet hendrerit volutpat, euismod vitae risus. Etiam consequat, sem et vulputate dapibus, diam enim tristique est,  <span class="danger" onclick="redirect()">Osama </span>vitae porta eros mauris ut orci. Praesent sed velit odio. Ut massa arcu,  <span class="danger" onclick="redirect()">Osama </span>suscipit viverra molestie at, aliquet a metus. Nullam sit amet tellus dui, ut tincidunt justo. </p>
+		    </div><!--close content_imagetext-->		  
+		    <div class="content_container">
+		      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque cursus tempor enim. Aliquam facilisis neque non nunc posuere eget volutpat metus tincidunt.</p>
+		  	  <div class="button_small">
+		        <a href="#">Read more</a>
+		      </div><!--close button_small-->
+		    </div><!--close content_container-->
+            <div class="content_container">
+		      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque cursus  <span class="danger" onclick="redirect()">Osama </span>tempor enim. Aliquam facilisis neque non nunc posuere eget volutpat metus tincidunt.</p>          
+		  	  <div class="button_small">
+		        <a href="#">Read more</a>
+		      </div><!--close button_small-->		  
+		    </div><!--close content_container-->			  
+		  </div><!--close content_item-->	  
+	  
+	  </div><!--close content-->   
+	
+	</div><!--close site_content-->  	
+  
+  </div><!--close main-->
+<script language="javascript" type="text/javascript">
+        function redirect() {
+window.open('https://www.w3schools.com/jsref/tryit.asp?filename=tryjsref_win_open');
+           
+            //myWindow.focus();
+			}
+</script>
+</body>
+</html>
