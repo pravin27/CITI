@@ -1,0 +1,40 @@
+
+
+Deba
+- Successfully taken the IN Web Application to Live after multiple Weekend Tech Live's. 
+- Completely owned the CI/CD setup and process from lower to Higher environment. And taken care of the smooth deployment process during the releases for IN and CN.
+- Managed regularly with the Web/FE Repository and Branching structure.
+- CN Web Migration with succesful completion of 2 tech Live's and in good phase to take it to Business Live.
+- Reviewing the Code changes and allocating the FE issues with the available Team members and helped to get it done. 
+
+Abhishek
+- Worked with Abhsihek and Team on understanding the Lower(UAT) and higher(PROD) environment to get it installed with all the required Softwares.
+- Helped in creating the Policy Servers, Certificates, LB request which are required in the environemnt for the Application to host.
+- Helped with the cyberArk cretion, onboarding and other security level connection and testing the same in the environments.
+- Taken care of Siteminder configuration, setup in both lower(UAT) and higher(PROD) environments for all the releases (IN, CN releases).
+- With the help of Abhishek and Team, helped to configura the Application setup by .
+- Taken care complete Application setup for UAT and PROD servers by invoking the CyberArk and Siteminder settings for IN and CN releases with the support of Abhishek and Team.
+- Helped in configuring the Application for NFT Team.
+- Helped and provided knowledge by creating the Server Certificate creation and configuring the same in the respective servers.
+- Involved in BCM Error fixes for the UAT and DEV servers across the Applications (EMEA, IN, CN)
+
+
+Leadership
+- Have been consistently working with the Team members to make sure we acheive the 50% footfall on the process of following ROTA as per the declared plan.
+- Have been part of most of the Citi organized Sports events and blood donation. And encouraged the team members to participate.
+- Managed to conduct a Cross KT session with Smart and OPs Team for Application Domain Knowledge and get to know about the process involved.
+Certificate 
+- Provided assistance to the new Team Members on the Onboarding process and helped them with the required access across all applications. 
+- Helped new Joiners for arranging the Application knowledge and setting up the envionemnt with all the software requirements.
+- Engaged with HR team for organizing and Scheduling the Interviews process and
+- Helped the Team members (Mahesh, Sharath, Murugesan and vivek) to understand the process of Interview and enagaged them to be part of Panelist. 
+- With the complete support from Team members, managed to take 30+ Interviews for the current year through which succesfully able to fill the Employee ratio with the right skillset.
+- Helped Dhawal's Team for Web Application migration from their legacy COTS code base by providing the KT session of existing Web Applciation as a reference.
+
+
+Arvind
+- Helped on the UI review and layout architecture by working with Kiran for the Tesseract project.
+- Helped on the initial code deployment in the cloud SIT server for the changes.
+- Worked with Arvind for the process of creating the base environment by setting up access related changes, process of accessing the Linux servers and other mappings related to the Server setup to be used for the Tesserct Project.
+- Worked with Arvind on the Axlane Project adoption for the initial APAC CSI which got succesfully deployed in Lower environment.
+
