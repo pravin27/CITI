@@ -153,8 +153,6 @@ FROM ColumnDetails;
 
 ---------------------------------
 
-
-
 DECLARE @TableName NVARCHAR(128) = 'YourTableName'; -- Replace with your table name
 DECLARE @SchemaName NVARCHAR(128) = 'dbo';          -- Replace with your schema name
 
@@ -215,8 +213,3 @@ INNER JOIN
     sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
 WHERE 
     tp.name = @TableName;
-
--- Remove the trailing comma
-SET @TableScript = REPLACE(@TableScript, ',);', ');');
-
-PRINT @TableScript;
