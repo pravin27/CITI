@@ -44,7 +44,12 @@ IndexDetails AS (
     SELECT 
         i.name AS IndexName,
         i.type_desc AS IndexType,
-        STRING_AGG(c.name, ', ') AS ColumnNames,
+        STUFF((
+            SELECT ', ' + c.name
+            FROM sys.index_columns ic2
+            INNER JOIN sys.columns c ON ic2.object_id = c.object_id AND ic2.column_id = c.column_id
+            WHERE ic2.object_id = ic.object_id AND ic2.index_id = ic.index_id
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS ColumnNames,
         i.fill_factor AS FillFactor
     FROM sys.indexes i
     INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
@@ -64,9 +69,12 @@ SELECT
         FROM TableDetails
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)') + 
     CASE 
-        WHEN EXISTS (SELECT 1 FROM PrimaryKeyDetails)
+       WHEN EXISTS (SELECT 1 FROM PrimaryKeyDetails)
         THEN '    CONSTRAINT [' + (SELECT TOP 1 ConstraintName FROM PrimaryKeyDetails) + '] PRIMARY KEY (' +
-             STRING_AGG(ColumnName, ', ') WITHIN GROUP (ORDER BY ColumnName) + ')' + CHAR(13)
+             STUFF((
+                SELECT ', ' + ColumnName
+                FROM PrimaryKeyDetails
+                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' + CHAR(13)
         ELSE ''
     END + ');' + CHAR(13) +
     ISNULL((
