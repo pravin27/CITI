@@ -126,6 +126,7 @@ WITH ColumnDetails AS (
             ELSE 'NOT NULL'
         END AS Nullable,
         dc.definition AS DefaultConstraint,
+        ROW_NUMBER() OVER (PARTITION BY c.name ORDER BY pk.is_primary_key DESC) AS RowNum,
         pk.is_primary_key AS IsPrimaryKey
     FROM sys.tables t
     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -144,11 +145,11 @@ SELECT
                 ISNULL(' DEFAULT ' + DefaultConstraint, '') +
                 CASE WHEN IsPrimaryKey = 1 THEN ' PRIMARY KEY' ELSE '' END + ',' + CHAR(13)
             FROM ColumnDetails
+            WHERE RowNum = 1 -- Select only the first row for each column
             FOR XML PATH(''), TYPE
         ).value('.', 'NVARCHAR(MAX)') +
         CHAR(13) + ');'
 FROM ColumnDetails;
-
 
 
 ---------------------------------
