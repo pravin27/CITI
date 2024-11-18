@@ -1,0 +1,147 @@
+-- Replace 'YourTableName' with the name of your table
+DECLARE @TableName NVARCHAR(MAX) = 'YourTableName';
+DECLARE @SchemaName NVARCHAR(MAX) = 'YourSchemaName';
+DECLARE @FullTableName NVARCHAR(MAX) = QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName);
+
+-- Step 1: Generate CREATE TABLE Script
+WITH TableDetails AS (
+    SELECT 
+        c.name AS ColumnName,
+        TYPE_NAME(c.user_type_id) AS DataType,
+        CASE 
+            WHEN TYPE_NAME(c.user_type_id) IN ('char', 'varchar', 'nchar', 'nvarchar') 
+                THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS NVARCHAR) END + ')'
+            WHEN TYPE_NAME(c.user_type_id) IN ('decimal', 'numeric') 
+                THEN '(' + CAST(c.precision AS NVARCHAR) + ',' + CAST(c.scale AS NVARCHAR) + ')'
+            ELSE ''
+        END AS DataTypeLength,
+        CASE WHEN c.is_nullable = 1 THEN 'NULL' ELSE 'NOT NULL' END AS Nullable,
+        ISNULL(dc.definition, '') AS DefaultConstraint
+    FROM sys.columns c
+    LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
+    WHERE c.object_id = OBJECT_ID(@FullTableName)
+),
+PrimaryKeyDetails AS (
+    SELECT 
+        k.name AS ConstraintName,
+        c.name AS ColumnName
+    FROM sys.key_constraints k
+    INNER JOIN sys.index_columns ic ON k.unique_index_id = ic.index_id
+    INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE k.parent_object_id = OBJECT_ID(@FullTableName) AND k.type = 'PK'
+),
+ForeignKeyDetails AS (
+    SELECT 
+        fk.name AS ForeignKeyName,
+        COL_NAME(fkc.parent_object_id, fkc.parent_column_id) AS ParentColumn,
+        OBJECT_NAME(fk.referenced_object_id) AS ReferencedTable,
+        COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) AS ReferencedColumn
+    FROM sys.foreign_keys fk
+    INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+    WHERE fk.parent_object_id = OBJECT_ID(@FullTableName)
+),
+IndexDetails AS (
+    SELECT 
+        i.name AS IndexName,
+        i.type_desc AS IndexType,
+        STRING_AGG(c.name, ', ') AS ColumnNames,
+        i.fill_factor AS FillFactor
+    FROM sys.indexes i
+    INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+    INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE i.object_id = OBJECT_ID(@FullTableName) AND i.is_primary_key = 0
+    GROUP BY i.name, i.type_desc, i.fill_factor
+)
+-- Combine Results
+SELECT 
+    'SET ANSI_PADDING ON;' + CHAR(13) +
+    'CREATE TABLE ' + @FullTableName + ' (' + CHAR(13) +
+    (
+        SELECT 
+            '    [' + ColumnName + '] ' + DataType + DataTypeLength + ' ' + Nullable +
+            CASE WHEN DefaultConstraint <> '' THEN ' DEFAULT ' + DefaultConstraint ELSE '' END +
+            ',' + CHAR(13)
+        FROM TableDetails
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)') + 
+    CASE 
+        WHEN EXISTS (SELECT 1 FROM PrimaryKeyDetails)
+        THEN '    CONSTRAINT [' + (SELECT TOP 1 ConstraintName FROM PrimaryKeyDetails) + '] PRIMARY KEY (' +
+             STRING_AGG(ColumnName, ', ') WITHIN GROUP (ORDER BY ColumnName) + ')' + CHAR(13)
+        ELSE ''
+    END + ');' + CHAR(13) +
+    ISNULL((
+        SELECT 
+            'ALTER TABLE ' + @FullTableName + ' ADD CONSTRAINT [' + ForeignKeyName + '] FOREIGN KEY (' + ParentColumn + 
+            ') REFERENCES ' + ReferencedTable + ' (' + ReferencedColumn + ');' + CHAR(13)
+        FROM ForeignKeyDetails
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), '') + 
+    ISNULL((
+        SELECT 
+            'CREATE ' + IndexType + ' INDEX [' + IndexName + '] ON ' + @FullTableName + ' (' + ColumnNames + 
+            ') WITH (FILLFACTOR = ' + CAST(FillFactor AS NVARCHAR) + ');' + CHAR(13)
+        FROM IndexDetails
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), '');
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		----------------------
+		
+		
+		
+DECLARE @TableName NVARCHAR(128) = 'YourTableName';
+DECLARE @SchemaName NVARCHAR(128) = 'YourSchemaName';
+
+DECLARE @TableScript NVARCHAR(MAX);
+
+WITH ColumnDetails AS (
+    SELECT 
+        c.name AS ColumnName,
+        TYPE_NAME(c.user_type_id) AS DataType,
+        CASE 
+            WHEN TYPE_NAME(c.user_type_id) IN ('char', 'varchar', 'nchar', 'nvarchar') 
+                THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS NVARCHAR) END + ')'
+            WHEN TYPE_NAME(c.user_type_id) IN ('decimal', 'numeric') 
+                THEN '(' + CAST(c.precision AS NVARCHAR) + ',' + CAST(c.scale AS NVARCHAR) + ')'
+            ELSE ''
+        END AS DataTypeLength,
+        CASE 
+            WHEN c.is_nullable = 1 THEN 'NULL'
+            ELSE 'NOT NULL'
+        END AS Nullable,
+        dc.definition AS DefaultConstraint,
+        pk.is_primary_key AS IsPrimaryKey
+    FROM sys.tables t
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    INNER JOIN sys.columns c ON t.object_id = c.object_id
+    LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
+    LEFT JOIN sys.index_columns ic ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+    LEFT JOIN sys.indexes pk ON ic.object_id = pk.object_id AND ic.index_id = pk.index_id AND pk.is_primary_key = 1
+    WHERE t.name = @TableName AND s.name = @SchemaName
+)
+SELECT 
+    @TableScript = 
+        'CREATE TABLE [' + @SchemaName + '].[' + @TableName + '] (' + CHAR(13) +
+        (
+            SELECT 
+                '    [' + ColumnName + '] ' + DataType + DataTypeLength + ' ' + Nullable +
+                ISNULL(' DEFAULT ' + DefaultConstraint, '') +
+                CASE WHEN IsPrimaryKey = 1 THEN ' PRIMARY KEY' ELSE '' END + ',' + CHAR(13)
+            FROM ColumnDetails
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)') +
+        CHAR(13) + ');'
+FROM ColumnDetails;
+
+-- Remove the trailing comma
+SET @TableScript = REPLACE(@TableScript, ',);', ');');
+
+PRINT @TableScript;
