@@ -214,3 +214,34 @@ INNER JOIN
     sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
 WHERE 
     tp.name = @TableName;
+
+
+-----------------------------------------
+Deploy
+
+# Define the paths
+$sourcePath = "C:\SourceDirectory" # Directory to list files from
+$lookupPath = "C:\LookupDirectory" # Directory to search for matching files
+$destinationPath = "C:\DestinationDirectory" # Directory to copy files to
+
+# Ensure destination directory exists
+if (!(Test-Path -Path $destinationPath)) {
+    New-Item -ItemType Directory -Path $destinationPath
+}
+
+# Get the list of files from the source directory
+$fileList = Get-ChildItem -Path $sourcePath -File | Select-Object -ExpandProperty Name
+
+# Iterate through each file name and copy matching files
+foreach ($file in $fileList) {
+    $sourceFile = Join-Path -Path $lookupPath -ChildPath $file
+    
+    if (Test-Path -Path $sourceFile) {
+        Copy-Item -Path $sourceFile -Destination $destinationPath -Force
+        Write-Host "Copied: $file to $destinationPath"
+    } else {
+        Write-Host "File not found: $file in $lookupPath"
+    }
+}
+
+Write-Host "File copy operation completed."
