@@ -11,30 +11,35 @@ do {
 
 
 
-"start" {
-    foreach ($svc in $targetServices) {
-        try {
-            # Get detailed info using WMI to access StartMode
-            $svcDetails = Get-WmiObject -Class Win32_Service -Filter "Name = '$($svc.Name)'" -ErrorAction Stop
+foreach ($svc in $targetServices) {
+    try {
+        $svcDetails = Get-WmiObject -Class Win32_Service -Filter "Name = '$($svc.Name)'" -ErrorAction Stop
 
-            if ($svcDetails.StartMode -eq 'Disabled') {
-                Write-Log "[SKIP] Service '$($svc.Name)' is disabled and cannot be started." "Yellow"
-                continue
-            }
-
-            if ($svc.Status -eq 'Running') {
-                Write-Log "[INFO] Service '$($svc.Name)' is already running. Restarting..." "Cyan"
-                Stop-Service -Name $svc.Name -Force -ErrorAction Stop
-                Start-Sleep -Seconds 2
-            } else {
-                Write-Log "[INFO] Service '$($svc.Name)' is stopped. Starting..." "Cyan"
-            }
-
-            Start-Service -Name $svc.Name -ErrorAction Stop
-            Write-Log "[SUCCESS] Started: $($svc.Name)" "Green"
-
-        } catch {
-            Write-Log "[ERROR] Failed to start/restart '$($svc.Name)': $_" "Red"
+        if ($svcDetails.StartMode -eq 'Disabled') {
+            Write-Log "[SKIP] '$($svc.Name)' is disabled and cannot be started." "Yellow"
+            continue
         }
+
+        if ($svc.Status -eq 'Running') {
+            Write-Log "[INFO] '$($svc.Name)' is running. Restarting..." "Cyan"
+            Stop-Service -Name $svc.Name -Force -ErrorAction Stop
+            Start-Sleep -Seconds 2
+        }
+
+        Start-Service -Name $svc.Name -ErrorAction Stop
+        Write-Log "[SUCCESS] '$($svc.Name)' started successfully." "Green"
+    }
+    catch {
+        # Extract the detailed reason for failure
+        $errorMessage = $_.Exception.Message
+        Write-Log "[ERROR] Failed to start '$($svc.Name)': $errorMessage" "Red"
+
+        # Optional: write more details (e.g., HRESULT, inner exception)
+        if ($_.Exception.InnerException) {
+            Write-Log "[DEBUG] Inner Exception: $($_.Exception.InnerException.Message)" "DarkGray"
+        }
+
+        # Continue to next service even if this one fails
+        continue
     }
 }
