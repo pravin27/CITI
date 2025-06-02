@@ -32,6 +32,8 @@ foreach ($svc in $targetServices) {
     catch {
         # Extract the detailed reason for failure
         $errorMessage = $_.Exception.Message
+      $stack = $_.ScriptStackTrace
+        $fullError = $_.ToString()
         Write-Log "[ERROR] Failed to start '$($svc.Name)': $errorMessage" "Red"
 
         # Optional: write more details (e.g., HRESULT, inner exception)
