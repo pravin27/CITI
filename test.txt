@@ -8,3 +8,33 @@ do {
     $logFile = Join-Path $logFolder ("{0}_{1}{2}" -f $baseFileName, $counter, $extension)
     $counter++
 } while (Test-Path $logFile)
+
+
+
+"start" {
+    foreach ($svc in $targetServices) {
+        try {
+            # Get detailed info using WMI to access StartMode
+            $svcDetails = Get-WmiObject -Class Win32_Service -Filter "Name = '$($svc.Name)'" -ErrorAction Stop
+
+            if ($svcDetails.StartMode -eq 'Disabled') {
+                Write-Log "[SKIP] Service '$($svc.Name)' is disabled and cannot be started." "Yellow"
+                continue
+            }
+
+            if ($svc.Status -eq 'Running') {
+                Write-Log "[INFO] Service '$($svc.Name)' is already running. Restarting..." "Cyan"
+                Stop-Service -Name $svc.Name -Force -ErrorAction Stop
+                Start-Sleep -Seconds 2
+            } else {
+                Write-Log "[INFO] Service '$($svc.Name)' is stopped. Starting..." "Cyan"
+            }
+
+            Start-Service -Name $svc.Name -ErrorAction Stop
+            Write-Log "[SUCCESS] Started: $($svc.Name)" "Green"
+
+        } catch {
+            Write-Log "[ERROR] Failed to start/restart '$($svc.Name)': $_" "Red"
+        }
+    }
+}
