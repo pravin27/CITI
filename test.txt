@@ -11,37 +11,59 @@ do {
 
 
 
-foreach ($svc in $targetServices) {
-    try {
-        $svcDetails = Get-WmiObject -Class Win32_Service -Filter "Name = '$($svc.Name)'" -ErrorAction Stop
+function Start-ServiceWithRetry {
+    param (
+        [string]$ServiceName,
+        [int]$MaxAttempts = 3,
+        [int]$RetryDelaySeconds = 3
+    )
 
-        if ($svcDetails.StartMode -eq 'Disabled') {
-            Write-Log "[SKIP] '$($svc.Name)' is disabled and cannot be started." "Yellow"
-            continue
-        }
+    $attempt = 1
+    $success = $false
 
-        if ($svc.Status -eq 'Running') {
-            Write-Log "[INFO] '$($svc.Name)' is running. Restarting..." "Cyan"
-            Stop-Service -Name $svc.Name -Force -ErrorAction Stop
+    while ($attempt -le $MaxAttempts -and -not $success) {
+        try {
+            $svc = Get-Service -Name $ServiceName -ErrorAction Stop
+
+            if ($svc.Status -eq 'Running') {
+                Write-Host "[INFO] '$ServiceName' is already running." -ForegroundColor Green
+                return $true
+            }
+
+            Write-Host "[INFO] Attempt #$attempt to start '$ServiceName'" -ForegroundColor Cyan
+            Start-Service -Name $ServiceName -ErrorAction Stop
             Start-Sleep -Seconds 2
-        }
 
-        Start-Service -Name $svc.Name -ErrorAction Stop
-        Write-Log "[SUCCESS] '$($svc.Name)' started successfully." "Green"
+            $svc.Refresh()
+            if ($svc.Status -eq 'Running') {
+                Write-Host "[SUCCESS] '$ServiceName' started successfully." -ForegroundColor Green
+                $success = $true
+                return $true
+            } else {
+                throw "Still not running (Status: $($svc.Status))"
+            }
+        }
+        catch {
+            Write-Host "[ERROR] Attempt #$attempt failed: $($_.Exception.Message)" -ForegroundColor Red
+            $attempt++
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
     }
-    catch {
-        # Extract the detailed reason for failure
-        $errorMessage = $_.Exception.Message
-      $stack = $_.ScriptStackTrace
-        $fullError = $_.ToString()
-        Write-Log "[ERROR] Failed to start '$($svc.Name)': $errorMessage" "Red"
 
-        # Optional: write more details (e.g., HRESULT, inner exception)
-        if ($_.Exception.InnerException) {
-            Write-Log "[DEBUG] Inner Exception: $($_.Exception.InnerException.Message)" "DarkGray"
-        }
+    Write-Host "[FAIL] '$ServiceName' failed to start after $MaxAttempts attempts." -ForegroundColor Red
+    return $false
+}
 
-        # Continue to next service even if this one fails
+$servicesToStart = @('CBFTService1', 'FTUService2', 'FTUService3')
+
+foreach ($svcName in $servicesToStart) {
+    $result = Start-ServiceWithRetry -ServiceName $svcName
+
+    if (-not $result) {
+        # Optionally log to file here
+        Write-Host "[WARN] Skipping '$svcName' after failures." -ForegroundColor Yellow
         continue
     }
+
+    # Further actions if needed...
 }
