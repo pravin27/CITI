@@ -1,0 +1,66 @@
+# 1. Define keywords and log location
+$keywords = @('CBFT', 'FTU')
+$inputServiceList = Read-Host "Enter service names to stop (comma-separated), or press Enter to stop all matching CBFT/FTU services"
+
+# 2. Create timestamped log folder & file
+$timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$logDir = "C:\Logs\ServiceStops\$timestamp"
+New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+$logFile = Join-Path $logDir "service-stop-log.txt"
+
+# 3. Log helper function
+function Write-Log {
+    param (
+        [string]$message,
+        [string]$level = "INFO"
+    )
+    $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logEntry = "[$time][$level] $message"
+    Add-Content -Path $logFile -Value $logEntry
+    Write-Host $logEntry
+}
+
+# 4. Get all services
+$allServices = Get-Service
+
+# 5. Filter target services
+if ([string]::IsNullOrWhiteSpace($inputServiceList)) {
+    $targetServices = $allServices | Where-Object {
+        $svcName = $_.Name
+        $displayName = $_.DisplayName
+        $keywords | Where-Object { $svcName -like "*$_*" -or $displayName -like "*$_*" }
+    }
+
+    Write-Log "Stopping all services matching keywords: $($keywords -join ', ')"
+} else {
+    $inputNames = $inputServiceList -split "," | ForEach-Object { $_.Trim() }
+    $targetServices = @()
+
+    foreach ($name in $inputNames) {
+        $svc = $allServices | Where-Object { $_.Name -eq $name }
+        if ($svc) {
+            $targetServices += $svc
+        } else {
+            Write-Log "Service '$name' not found on this machine." "WARN"
+        }
+    }
+
+    Write-Log "Attempting to stop specified services: $($inputNames -join ', ')"
+}
+
+# 6. Stop matching services
+foreach ($svc in $targetServices) {
+    if ($svc.Status -eq 'Running') {
+        try {
+            Write-Log "Stopping service: $($svc.Name) ($($svc.DisplayName))"
+            Stop-Service -Name $svc.Name -Force -ErrorAction Stop
+            Write-Log "Successfully stopped: $($svc.Name)" "SUCCESS"
+        } catch {
+            Write-Log "Failed to stop $($svc.Name): $_" "ERROR"
+        }
+    } else {
+        Write-Log "Service $($svc.Name) is not running. Skipping." "SKIP"
+    }
+}
+
+Write-Log "Log file saved to: $logFile" "DONE"
