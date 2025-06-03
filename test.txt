@@ -67,3 +67,11 @@ foreach ($svcName in $servicesToStart) {
 
     # Further actions if needed...
 }
+
+
+# Print and log minimal info (Name + State)
+    $filtered | ForEach-Object {
+        $line = "[$($_.Name)] - $($_.State)"
+        Write-Host $line
+        Add-Content -Path $summaryFile -Value $line
+    }
