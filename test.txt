@@ -69,9 +69,22 @@ foreach ($svcName in $servicesToStart) {
 }
 
 
-# Print and log minimal info (Name + State)
-    $filtered | ForEach-Object {
-        $line = "[$($_.Name)] - $($_.State)"
-        Write-Host $line
-        Add-Content -Path $summaryFile -Value $line
+# Max width for service name
+$maxNameLength = 35
+
+$filtered | ForEach-Object {
+    $name = $_.Name
+    $state = $_.State
+    $startMode = $_.StartMode
+
+    # Truncate service name if too long
+    if ($name.Length -gt $maxNameLength) {
+        $name = $name.Substring(0, $maxNameLength - 3) + "..."
     }
+
+    # Format line with clean alignment
+    $line = "{0,-" + $maxNameLength + "} | Status: {1,-10} | Startup: {2}" -f $name, $state, $startMode
+
+    Write-Host $line
+    Add-Content -Path $summaryFile -Value $line
+}
