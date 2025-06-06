@@ -74,14 +74,14 @@ function Start-ServiceWithRetryAndTimeout {
         [string]$ServiceName,
         [int]$TimeoutSeconds = 30,
         [int]$MaxAttempts = 3,
-        [int]$SleepBetweenRetries = 5
+        [int]$SleepBetweenRetries = 5,
+        [int]$NoProgressSeconds = 10  # Optional early timeout if stuck
     )
 
     $attempt = 1
     while ($attempt -le $MaxAttempts) {
         Write-Host "`n--- Attempt $attempt to start service '$ServiceName' ---"
 
-        # Fetch service object fresh each time
         $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
         if (-not $service) {
             Write-Warning "Service '$ServiceName' not found."
@@ -89,7 +89,7 @@ function Start-ServiceWithRetryAndTimeout {
         }
 
         if ($service.Status -eq 'Running') {
-            Write-Host "Service '$ServiceName' is already running."
+            Write-Host "✅ Service is already running."
             return
         }
 
@@ -100,44 +100,61 @@ function Start-ServiceWithRetryAndTimeout {
             Write-Warning "Start attempt failed: $_"
         }
 
-        # Wait for the service to reach 'Running'
+        # Wait loop
         $elapsed = 0
+        $stuckElapsed = 0
+        $lastStatus = $service.Status
         while ($elapsed -lt $TimeoutSeconds) {
             Start-Sleep -Seconds 2
             $elapsed += 2
             $service.Refresh()
 
             if ($service.Status -eq 'Running') {
-                Write-Host "✅ Service '$ServiceName' started successfully in $elapsed seconds."
+                Write-Host "✅ Service started in $elapsed seconds."
                 return
-            } elseif ($service.Status -ne 'StartPending') {
-                break
             }
+
+            # Detect stuck in StartPending
+            if ($service.Status -eq 'StartPending') {
+                if ($service.Status -eq $lastStatus) {
+                    $stuckElapsed += 2
+                } else {
+                    $stuckElapsed = 0
+                }
+
+                if ($stuckElapsed -ge $NoProgressSeconds) {
+                    Write-Warning "⛔ Service stuck for $NoProgressSeconds seconds. Breaking early."
+                    break
+                }
+            }
+
+            $lastStatus = $service.Status
         }
 
+        # Final status
         $service.Refresh()
         if ($service.Status -eq 'Running') {
-            Write-Host "✅ Service '$ServiceName' started successfully."
+            Write-Host "✅ Service started after wait."
             return
         } elseif ($service.Status -eq 'StartPending') {
-            Write-Warning "⏱ Service stuck in StartPending for $TimeoutSeconds seconds."
+            Write-Warning "⚠️ Service stuck in StartPending even after timeout."
             try {
-                Write-Host "Trying to force-stop stuck service..."
+                Write-Host "Forcing stop..."
                 Stop-Service -Name $ServiceName -Force -ErrorAction Stop
                 Start-Sleep -Seconds 3
             } catch {
                 Write-Warning "Could not stop stuck service: $_"
             }
         } else {
-            Write-Warning "Service '$ServiceName' status is '$($service.Status)'. Retrying..."
+            Write-Host "Service status: $($service.Status). Will retry."
         }
 
         $attempt++
         if ($attempt -le $MaxAttempts) {
-            Write-Host "⏳ Waiting $SleepBetweenRetries seconds before retry..."
+            Write-Host "🔁 Sleeping $SleepBetweenRetries seconds before next attempt..."
             Start-Sleep -Seconds $SleepBetweenRetries
         } else {
-            Write-Error "❌ Failed to start service '$ServiceName' after $MaxAttempts attempts."
+            Write-Error "❌ Failed after $MaxAttempts attempts."
         }
     }
 }
