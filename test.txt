@@ -69,22 +69,75 @@ foreach ($svcName in $servicesToStart) {
 }
 
 
-# Max width for service name
-$maxNameLength = 35
+function Start-ServiceWithRetryAndTimeout {
+    param (
+        [string]$ServiceName,
+        [int]$TimeoutSeconds = 30,
+        [int]$MaxAttempts = 3,
+        [int]$SleepBetweenRetries = 5
+    )
 
-$filtered | ForEach-Object {
-    $name = $_.Name
-    $state = $_.State
-    $startMode = $_.StartMode
+    $attempt = 1
+    while ($attempt -le $MaxAttempts) {
+        Write-Host "`n--- Attempt $attempt to start service '$ServiceName' ---"
 
-    # Truncate service name if too long
-    if ($name.Length -gt $maxNameLength) {
-        $name = $name.Substring(0, $maxNameLength - 3) + "..."
+        # Fetch service object fresh each time
+        $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if (-not $service) {
+            Write-Warning "Service '$ServiceName' not found."
+            return
+        }
+
+        if ($service.Status -eq 'Running') {
+            Write-Host "Service '$ServiceName' is already running."
+            return
+        }
+
+        try {
+            Write-Host "Starting service..."
+            Start-Service -Name $ServiceName -ErrorAction Stop
+        } catch {
+            Write-Warning "Start attempt failed: $_"
+        }
+
+        # Wait for the service to reach 'Running'
+        $elapsed = 0
+        while ($elapsed -lt $TimeoutSeconds) {
+            Start-Sleep -Seconds 2
+            $elapsed += 2
+            $service.Refresh()
+
+            if ($service.Status -eq 'Running') {
+                Write-Host "✅ Service '$ServiceName' started successfully in $elapsed seconds."
+                return
+            } elseif ($service.Status -ne 'StartPending') {
+                break
+            }
+        }
+
+        $service.Refresh()
+        if ($service.Status -eq 'Running') {
+            Write-Host "✅ Service '$ServiceName' started successfully."
+            return
+        } elseif ($service.Status -eq 'StartPending') {
+            Write-Warning "⏱ Service stuck in StartPending for $TimeoutSeconds seconds."
+            try {
+                Write-Host "Trying to force-stop stuck service..."
+                Stop-Service -Name $ServiceName -Force -ErrorAction Stop
+                Start-Sleep -Seconds 3
+            } catch {
+                Write-Warning "Could not stop stuck service: $_"
+            }
+        } else {
+            Write-Warning "Service '$ServiceName' status is '$($service.Status)'. Retrying..."
+        }
+
+        $attempt++
+        if ($attempt -le $MaxAttempts) {
+            Write-Host "⏳ Waiting $SleepBetweenRetries seconds before retry..."
+            Start-Sleep -Seconds $SleepBetweenRetries
+        } else {
+            Write-Error "❌ Failed to start service '$ServiceName' after $MaxAttempts attempts."
+        }
     }
-
-    # Format line with clean alignment
-    $line = "{0,-" + $maxNameLength + "} | Status: {1,-10} | Startup: {2}" -f $name, $state, $startMode
-
-    Write-Host $line
-    Add-Content -Path $summaryFile -Value $line
 }
