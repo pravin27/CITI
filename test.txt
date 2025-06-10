@@ -239,3 +239,4 @@ function Start-ServiceWithRetry {
     return $false
 }
 
+! (environment.getProperty("category") =~ /.*(PROD|COB).*/)
