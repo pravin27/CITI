@@ -158,3 +158,32 @@ function Start-ServiceWithRetryAndTimeout {
         }
     }
 }
+
+
+# STOP
+# Wait for service to stop
+        $elapsed = 0
+        while ($svc.Status -ne 'Stopped' -and $elapsed -lt $TimeoutSeconds) {
+            Start-Sleep -Seconds 2
+            $elapsed += 2
+            $svc.Refresh()
+            Write-Host "[INFO] Waiting... ($elapsed/$TimeoutSeconds sec)" -ForegroundColor Yellow
+        }
+
+        if ($svc.Status -eq 'Stopped') {
+            Write-Host "[SUCCESS] '$ServiceName' stopped successfully." -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "[WARN] '$ServiceName' did not stop in time. Attempting force kill." -ForegroundColor Red
+
+            # Try to find and kill the service process
+            $wmi = Get-WmiObject -Class Win32_Service -Filter "Name='$ServiceName'"
+            if ($wmi -and $wmi.ProcessId -ne 0) {
+                Stop-Process -Id $wmi.ProcessId -Force -ErrorAction Stop
+                Write-Host "[FORCE] Killed process $($wmi.ProcessId) for '$ServiceName'." -ForegroundColor Magenta
+                return $true
+            } else {
+                Write-Host "[ERROR] Unable to retrieve process ID for '$ServiceName'." -ForegroundColor Red
+                return $false
+            }
+        }
