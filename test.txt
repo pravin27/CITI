@@ -187,3 +187,55 @@ function Start-ServiceWithRetryAndTimeout {
                 return $false
             }
         }
+
+function Start-ServiceWithRetry {
+    param (
+        [string]$ServiceName,
+        [int]$MaxAttempts = 3,
+        [int]$RetryDelaySeconds = 3,
+        [int]$StartTimeoutSeconds = 30
+    )
+
+    $attempt = 1
+    $success = $false
+
+    while ($attempt -le $MaxAttempts -and -not $success) {
+        try {
+            $svc = Get-Service -Name $ServiceName -ErrorAction Stop
+
+            if ($svc.Status -eq 'Running') {
+                Write-Host "[INFO] '$ServiceName' is already running." -ForegroundColor Green
+                return $true
+            }
+
+            Write-Host "[INFO] Attempt #$attempt to start '$ServiceName'" -ForegroundColor Cyan
+            Start-Service -Name $ServiceName -ErrorAction Stop
+
+            # Wait for service to reach Running with timeout
+            $elapsed = 0
+            while ($svc.Status -ne 'Running' -and $elapsed -lt $StartTimeoutSeconds) {
+                Start-Sleep -Seconds 2
+                $elapsed += 2
+                $svc.Refresh()
+                Write-Host "[INFO] Waiting for '$ServiceName' to start... ($elapsed/$StartTimeoutSeconds sec)" -ForegroundColor Yellow
+            }
+
+            if ($svc.Status -eq 'Running') {
+                Write-Host "[SUCCESS] '$ServiceName' started successfully." -ForegroundColor Green
+                $success = $true
+                return $true
+            } else {
+                throw "Timeout reached. Service is still not running (Status: $($svc.Status))"
+            }
+        }
+        catch {
+            Write-Host "[ERROR] Attempt #$attempt failed: $($_.Exception.Message)" -ForegroundColor Red
+            $attempt++
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
+    }
+
+    Write-Host "[FAIL] '$ServiceName' failed to start after $MaxAttempts attempts." -ForegroundColor Red
+    return $false
+}
+
