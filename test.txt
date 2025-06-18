@@ -240,3 +240,50 @@ function Start-ServiceWithRetry {
 }
 
 ! (environment.getProperty("category") =~ /.*(PROD|COB).*/)
+
+
+
+try {
+    $service = Get-WmiObject -Class Win32_Service -Filter "Name='$serviceName'"
+    if ($null -eq $service) {
+        Write-Host "Service '$serviceName' not found." -ForegroundColor Red
+        exit 1
+    }
+
+    if ($service.State -eq "Stopped") {
+        Write-Host "Service '$serviceName' is already stopped." -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Sending stop request to '$serviceName'..."
+    $result = $service.StopService()
+    Start-Sleep -Seconds 2
+
+    $timeout = (Get-Date).AddSeconds($timeoutSeconds)
+
+    while ((Get-Service -Name $serviceName).Status -ne 'Stopped') {
+        if ((Get-Date) -gt $timeout) {
+            Write-Host "Timeout waiting for '$serviceName' to stop." -ForegroundColor Red
+
+            if ($killIfStuck) {
+                $procId = (Get-WmiObject Win32_Service -Filter "Name='$serviceName'").ProcessId
+                if ($procId -ne 0) {
+                    Write-Host "Force killing service process (PID: $procId)..." -ForegroundColor Yellow
+                    Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+                }
+            }
+
+            break
+        }
+
+        Write-Host "Waiting for service '$serviceName' to stop..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 2
+    }
+
+    if ((Get-Service -Name $serviceName).Status -eq 'Stopped') {
+        Write-Host "Service '$serviceName' stopped successfully." -ForegroundColor Green
+    }
+
+} catch {
+    Write-Host "Error stopping service '$serviceName': $_" -ForegroundColor Red
+}
