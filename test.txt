@@ -3,6 +3,10 @@ $baseFileName = "service-log"
 $extension = ".txt"
 $counter = 1
 
+⚠️
+🔴
+❌
+
 # Loop to find next available log file name
 do {
     $logFile = Join-Path $logFolder ("{0}_{1}{2}" -f $baseFileName, $counter, $extension)
