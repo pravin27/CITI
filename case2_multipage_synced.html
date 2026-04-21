@@ -1,0 +1,300 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.app{display:flex;height:640px;border:.5px solid var(--color-border-tertiary);border-radius:12px;overflow:hidden;font-family:var(--font-sans,sans-serif);background:var(--color-background-primary)}
+.sb{width:204px;flex-shrink:0;display:flex;flex-direction:column;background:#0d1829;border-right:1px solid #1a2740}
+.sb-top{padding:8px 10px 6px;border-bottom:1px solid #1a2740;background:#080f1a;flex-shrink:0}
+.sb-docname{font-size:11px;color:#e8f0f6;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-sub{font-size:10px;color:#4a6070;margin-top:1px}
+.doc-nav{display:flex;align-items:center;gap:5px;padding:6px 8px;border-bottom:1px solid #1a2740;background:#0a1520;flex-shrink:0}
+.icnbtn{background:#1a2f47;border:.5px solid #2a4060;color:#8ab0c8;border-radius:5px;width:28px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s;flex-shrink:0}
+.icnbtn:hover:not(:disabled){background:#243d5a;color:#e8f0f6}
+.icnbtn:disabled{opacity:.28;cursor:default}
+.icnbtn svg{width:14px;height:14px;fill:currentColor}
+.dnctr{flex:1;text-align:center;font-size:10px;color:#e8f0f6;font-weight:500;background:#142035;border-radius:4px;padding:3px 0;line-height:1}
+.tabs{display:flex;border-bottom:1px solid #1a2740;flex-shrink:0}
+.tab{flex:1;padding:6px 0;font-size:10px;font-weight:500;color:#4a6070;text-align:center;cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s}
+.tab.on{color:#8ab0c8;border-bottom-color:#1a7fd4}
+.tab:hover:not(.on){color:#6a8aaa}
+.sb-scroll{flex:1;overflow-y:auto}
+.sb-scroll::-webkit-scrollbar{width:3px}
+.sb-scroll::-webkit-scrollbar-thumb{background:#c0c8d0;border-radius:2px}
+.cat-hdr{padding:5px 8px 4px;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:5px;position:sticky;top:0;z-index:2;border-bottom:.5px solid rgba(0,0,0,.07)}
+.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.pg-row{display:flex;align-items:center;gap:7px;padding:5px 8px 5px 10px;cursor:pointer;border-left:3px solid transparent;border-bottom:.5px solid rgba(0,0,0,.05);transition:background .1s}
+.pg-row.active{background:#ddeeff;border-left-color:#1a7fd4}
+.pg-row:hover:not(.active){background:#e8edf2}
+.pg-mini{width:30px;height:38px;background:#fff;border-radius:2px;border:.5px solid #ccc;flex-shrink:0;overflow:hidden;display:flex;flex-direction:column;gap:2px;padding:3px 3px 2px;position:relative}
+.pg-stripe{position:absolute;left:0;top:0;bottom:0;width:2px}
+.pml{height:2px;border-radius:1px;background:#e0e4e8}
+.pml.h{background:#c5cdd6;width:70%}
+.pml.s{width:50%}
+.pg-info{flex:1;min-width:0}
+.pg-num{font-size:9.5px;font-weight:500;color:#1a2a3a}
+.pg-cat{font-size:8px;color:#6a7a8a;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-acc{border-bottom:.5px solid rgba(0,0,0,.06)}
+.file-hdr{display:flex;align-items:center;gap:6px;padding:7px 8px 7px 10px;cursor:pointer;transition:background .1s;background:#f4f5f6}
+.file-hdr:hover{background:#eaecee}
+.file-hdr.sel{background:#ddeeff}
+.file-arrow{font-size:10px;color:#6a7a8a;transition:transform .15s;flex-shrink:0;width:12px;text-align:center;line-height:1}
+.file-arrow.open{transform:rotate(90deg)}
+.file-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1.5px solid transparent}
+.file-name{font-size:10px;font-weight:500;color:#1a2a3a;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-pgcnt{font-size:8.5px;color:#6a7a8a;flex-shrink:0}
+.cat-sub{padding:0;overflow:hidden;max-height:0;transition:max-height .18s ease}
+.cat-sub.open{max-height:500px}
+.cat-sub-row{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 26px;cursor:pointer;border-left:3px solid transparent;transition:background .1s;border-bottom:.5px solid rgba(0,0,0,.04)}
+.cat-sub-row.active{background:#ddeeff;border-left-color:#1a7fd4}
+.cat-sub-row:hover:not(.active){background:#eaecee}
+.csb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.csb-label{font-size:9.5px;color:#2a3a4a;flex:1}
+.csb-pg{font-size:8px;color:#6a7a8a}
+.viewer{flex:1;display:flex;flex-direction:column;background:#1e2d3d;min-width:0}
+.vbar{background:#080f1a;border-bottom:1px solid #1a2740;padding:7px 12px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.vname{font-size:11.5px;color:#e8f0f6;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vbadge{font-size:9px;padding:2px 8px;border-radius:10px;font-weight:500;flex-shrink:0}
+.vbtns{display:flex;gap:5px;flex-shrink:0}
+.vbtn{background:#1a2f47;border:.5px solid #2a4060;color:#8ab0c8;border-radius:5px;height:24px;padding:0 8px;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;transition:background .12s}
+.vbtn:hover{background:#243d5a;color:#e8f0f6}
+.vbtn svg{width:10px;height:10px;fill:currentColor}
+.vcontent{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+.pdf{background:#fff;border-radius:3px;width:300px;height:400px;padding:24px 28px;display:flex;flex-direction:column;gap:7px;transition:border-top .2s}
+.pl{height:7px;border-radius:2px;background:#e8eaed}
+.pl.t{height:13px;background:#c5cdd6;width:58%;margin-bottom:5px}
+.pl.s{width:52%}.pl.m{width:76%}
+.pl.logo{height:18px;width:36%;background:#dde0e4;margin-bottom:8px}
+.pg-nav{display:flex;align-items:center;gap:8px;position:absolute;bottom:14px;left:50%;transform:translateX(-50%)}
+.pnbtn{background:rgba(0,0,0,.5);border:none;color:#fff;border-radius:5px;width:30px;height:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s}
+.pnbtn:hover{background:rgba(0,0,0,.75)}
+.pnbtn:disabled{opacity:.28;cursor:default}
+.pnbtn svg{width:14px;height:14px;fill:#fff}
+.pnlbl{color:#fff;font-size:11px;background:rgba(0,0,0,.5);padding:4px 10px;border-radius:4px}
+.vfoot{background:#080f1a;border-top:1px solid #1a2740;padding:5px 12px;font-size:10px;color:#4a6070;display:flex;gap:10px;flex-shrink:0;flex-wrap:wrap}
+.vfoot span{color:#8ab0c8}
+</style>
+
+<div style="padding:0 0 6px;font-size:11px;color:var(--color-text-secondary);font-weight:500">Case 2 — multi-page documents, mixed-category pages, synced thumbnail ↔ outline ↔ viewer</div>
+<div class="app">
+  <div class="sb">
+    <div class="sb-top">
+      <div class="sb-docname" id="c2-dname">Invoice_2024_001.pdf</div>
+      <div class="sb-sub" id="c2-dsub">Doc 1 of 6 · 3 pages</div>
+    </div>
+    <div class="doc-nav">
+      <button class="icnbtn" id="c2-prev" title="Previous document" onclick="c2Doc(-1)">
+        <svg viewBox="0 0 16 16"><path d="M10.5 3L5.5 8l5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="dnctr" id="c2-ctr">1 / 6</div>
+      <button class="icnbtn" id="c2-next" title="Next document" onclick="c2Doc(1)">
+        <svg viewBox="0 0 16 16"><path d="M5.5 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="tabs">
+      <div class="tab on" id="tab-pg" onclick="c2Tab('pg')">Thumbnails</div>
+      <div class="tab" id="tab-ol" onclick="c2Tab('ol')">Doc outline</div>
+    </div>
+    <div class="sb-scroll" id="c2-panel"></div>
+  </div>
+
+  <div class="viewer">
+    <div class="vbar">
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span class="vname" id="c2-vname">—</span>
+          <span class="vbadge" id="c2-vbadge"></span>
+        </div>
+        <span style="font-size:10px;color:#4a6070" id="c2-vmeta">—</span>
+      </div>
+      <div class="vbtns">
+        <button class="vbtn" onclick="c2Doc(-1)">
+          <svg viewBox="0 0 16 16"><path d="M10.5 3L5.5 8l5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Prev doc
+        </button>
+        <button class="vbtn" onclick="c2Doc(1)">
+          Next doc
+          <svg viewBox="0 0 16 16"><path d="M5.5 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="vcontent">
+      <div class="pdf" id="c2-pdf">
+        <div class="pl logo"></div><div class="pl t"></div>
+        <div class="pl"></div><div class="pl s"></div><div class="pl m"></div>
+        <div class="pl"></div><div class="pl s"></div><div class="pl"></div>
+        <div class="pl m"></div><div class="pl s"></div><div class="pl"></div>
+      </div>
+      <div class="pg-nav">
+        <button class="pnbtn" id="c2-pp" onclick="c2Page(-1)">
+          <svg viewBox="0 0 16 16"><path d="M10.5 3L5.5 8l5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <span class="pnlbl" id="c2-plbl">1 / 3</span>
+        <button class="pnbtn" id="c2-pn" onclick="c2Page(1)">
+          <svg viewBox="0 0 16 16"><path d="M5.5 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="vfoot">
+      <div>Doc: <span id="c2-fdoc">—</span></div>
+      <div>Page: <span id="c2-fpg">—</span></div>
+      <div>Category: <span id="c2-fcat">—</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+const C=[
+  {l:'Invoice',    c:'#1a7fd4',bg:'#deeeff',tx:'#0C447C'},
+  {l:'Declaration',c:'#0F6E56',bg:'#d5f2e8',tx:'#085041'},
+  {l:'Form 15',   c:'#854F0B',bg:'#fde8c0',tx:'#633806'},
+  {l:'Permit',    c:'#993556',bg:'#f9d8e6',tx:'#72243E'},
+];
+// Each doc: name, pages array where each page has a category index
+const DOCS=[
+  {n:'Invoice_2024_001', pages:[0,0,1]},
+  {n:'Invoice_2024_002', pages:[0,1,2]},
+  {n:'Declaration_A',   pages:[1,1,0,2]},
+  {n:'Form15_Jan',      pages:[2,2,1,0,2]},
+  {n:'Permit_Alpha',    pages:[3,3,1]},
+  {n:'Permit_Beta',     pages:[3,0]},
+];
+
+let aDoc=0, aPg=1, aTab='pg';
+const openAcc=new Set([0]);
+
+function pgCatGroups(docIdx){
+  const doc=DOCS[docIdx];
+  const g={};
+  doc.pages.forEach((ci,pi)=>{
+    if(!g[ci])g[ci]=[];
+    g[ci].push(pi+1);
+  });
+  return g;
+}
+
+function render(){
+  renderPanel();renderViewer();renderDocNav();
+}
+
+function renderPanel(){
+  const p=document.getElementById('c2-panel');p.innerHTML='';
+  if(aTab==='pg'){
+    const g=pgCatGroups(aDoc);
+    Object.keys(g).forEach(ci=>{
+      const cat=C[ci];
+      const h=document.createElement('div');h.className='cat-hdr';
+      h.style.cssText=`background:${cat.bg};color:${cat.tx}`;
+      h.innerHTML=`<span class="cat-dot" style="background:${cat.c}"></span>${cat.l}<span style="margin-left:auto;font-size:9px;opacity:.6">${g[ci].length} pg</span>`;
+      p.appendChild(h);
+      g[ci].forEach(pg=>{
+        const r=document.createElement('div');
+        r.className='pg-row'+(pg===aPg?' active':'');
+        r.id='pgrow'+pg;
+        r.onclick=()=>selPage(pg);
+        r.innerHTML=`<div class="pg-mini"><span class="pg-stripe" style="background:${cat.c}"></span><div class="pml h"></div><div class="pml"></div><div class="pml s"></div><div class="pml"></div><div class="pml"></div></div><div class="pg-info"><div class="pg-num">Page ${pg}</div><div class="pg-cat">${cat.l}</div></div>`;
+        p.appendChild(r);
+      });
+    });
+    const el=document.getElementById('pgrow'+aPg);
+    if(el)setTimeout(()=>el.scrollIntoView({block:'nearest',behavior:'smooth'}),50);
+  } else {
+    DOCS.forEach((doc,di)=>{
+      const isOpen=openAcc.has(di);
+      const isSel=di===aDoc;
+      const cats=new Set(doc.pages);
+      const dominant=doc.pages[0];
+      const cat=C[dominant];
+      const wrap=document.createElement('div');wrap.className='file-acc';
+      const hdr=document.createElement('div');
+      hdr.className='file-hdr'+(isSel?' sel':'');
+      hdr.onclick=()=>{
+        if(openAcc.has(di))openAcc.delete(di); else openAcc.add(di);
+        if(di!==aDoc){aDoc=di;aPg=1;}
+        render();
+        setTimeout(()=>{
+          const el=document.getElementById('acc'+di);
+          if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
+        },50);
+      };
+      hdr.id='acc'+di;
+      const catDots=[...cats].map(ci=>`<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${C[ci].c};margin-right:2px"></span>`).join('');
+      hdr.innerHTML=`<span class="file-arrow${isOpen?' open':''}">›</span><div style="display:flex;align-items:center;gap:2px">${catDots}</div><span class="file-name">${doc.n}</span><span class="file-pgcnt">${doc.pages.length}p</span>`;
+      const sub=document.createElement('div');sub.className='cat-sub'+(isOpen?' open':'');
+      const subCats={};
+      doc.pages.forEach((ci,pi)=>{if(!subCats[ci])subCats[ci]=[];subCats[ci].push(pi+1);});
+      Object.keys(subCats).forEach(ci=>{
+        const sc=C[ci];
+        const isActiveCat=di===aDoc && subCats[ci].includes(aPg);
+        const sr=document.createElement('div');
+        sr.className='cat-sub-row'+(isActiveCat?' active':'');
+        const pgList=subCats[ci].join(', ');
+        sr.innerHTML=`<span class="csb-dot" style="background:${sc.c}"></span><span class="csb-label">${sc.l}</span><span class="csb-pg">pg ${pgList}</span>`;
+        sr.onclick=(e)=>{
+          e.stopPropagation();
+          aDoc=di;aPg=subCats[ci][0];
+          if(!openAcc.has(di))openAcc.add(di);
+          render();
+        };
+        sub.appendChild(sr);
+      });
+      wrap.appendChild(hdr);wrap.appendChild(sub);
+      p.appendChild(wrap);
+    });
+  }
+}
+
+function renderViewer(){
+  const doc=DOCS[aDoc];
+  const ci=doc.pages[aPg-1];
+  const cat=C[ci];
+  document.getElementById('c2-vname').textContent=doc.n+'.pdf';
+  const b=document.getElementById('c2-vbadge');b.textContent=cat.l;b.style.background=cat.bg;b.style.color=cat.tx;
+  document.getElementById('c2-vmeta').textContent=`Page ${aPg} of ${doc.pages.length} · Doc ${aDoc+1} of ${DOCS.length}`;
+  document.getElementById('c2-plbl').textContent=`${aPg} / ${doc.pages.length}`;
+  document.getElementById('c2-pp').disabled=aPg<=1;
+  document.getElementById('c2-pn').disabled=aPg>=doc.pages.length;
+  document.getElementById('c2-pdf').style.borderTop=`4px solid ${cat.c}`;
+  document.getElementById('c2-fdoc').textContent=`${aDoc+1} of ${DOCS.length}`;
+  document.getElementById('c2-fpg').textContent=`${aPg} of ${doc.pages.length}`;
+  document.getElementById('c2-fcat').textContent=cat.l;
+}
+
+function renderDocNav(){
+  const doc=DOCS[aDoc];
+  document.getElementById('c2-dname').textContent=doc.n+'.pdf';
+  document.getElementById('c2-dsub').textContent=`Doc ${aDoc+1} of ${DOCS.length} · ${doc.pages.length} pages`;
+  document.getElementById('c2-ctr').textContent=`${aDoc+1} / ${DOCS.length}`;
+  document.getElementById('c2-prev').disabled=aDoc<=0;
+  document.getElementById('c2-next').disabled=aDoc>=DOCS.length-1;
+}
+
+function selPage(pg){aPg=pg;render();}
+window.selPage=selPage;
+
+function c2Tab(t){
+  aTab=t;
+  document.getElementById('tab-pg').className='tab'+(t==='pg'?' on':'');
+  document.getElementById('tab-ol').className='tab'+(t==='ol'?' on':'');
+  render();
+}
+window.c2Tab=c2Tab;
+
+function c2Doc(d){
+  const n=aDoc+d;if(n<0||n>=DOCS.length)return;
+  aDoc=n;aPg=1;
+  if(!openAcc.has(n))openAcc.add(n);
+  render();
+  document.getElementById('c2-panel').scrollTop=0;
+}
+window.c2Doc=c2Doc;
+
+function c2Page(d){
+  const n=aPg+d;const doc=DOCS[aDoc];
+  if(n<1||n>doc.pages.length)return;
+  aPg=n;render();
+}
+window.c2Page=c2Page;
+
+render();
+})();
+</script>

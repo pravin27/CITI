@@ -1,0 +1,110 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.app{display:flex;height:560px;border:0.5px solid var(--color-border-tertiary);border-radius:12px;overflow:hidden;font-family:var(--font-sans,sans-serif);background:var(--color-background-primary)}
+.sb{width:192px;flex-shrink:0;display:flex;flex-direction:column;background:#0d1829;border-right:1px solid #1a2740}
+.sb-head{padding:9px 10px 7px;border-bottom:1px solid #1a2740;background:#080f1a;flex-shrink:0}
+.sb-title{font-size:11px;color:#e8f0f6;font-weight:500}
+.sb-sub{font-size:10px;color:#4a6070;margin-top:2px}
+.sb-scroll{flex:1;overflow-y:auto}
+.sb-scroll::-webkit-scrollbar{width:3px}
+.sb-scroll::-webkit-scrollbar-thumb{background:#c0c8d0;border-radius:2px}
+.cat-hdr{padding:5px 10px 4px;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:5px;position:sticky;top:0;z-index:2;border-bottom:.5px solid rgba(0,0,0,.07)}
+.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.doc-row{display:flex;align-items:center;gap:8px;padding:5px 8px 5px 10px;cursor:pointer;border-left:3px solid transparent;border-bottom:.5px solid rgba(0,0,0,.05);transition:background .12s}
+.doc-row.active{background:#ddeeff;border-left-color:#1a7fd4}
+.doc-row:hover:not(.active){background:#e8edf2}
+.dr-thumb{width:36px;height:46px;background:#fff;border-radius:2px;border:.5px solid #ccc;flex-shrink:0;overflow:hidden;display:flex;flex-direction:column;gap:2.5px;padding:4px 4px 3px;position:relative}
+.dr-stripe{position:absolute;left:0;top:0;bottom:0;width:2.5px}
+.dr-line{height:2.5px;border-radius:1px;background:#e0e4e8}
+.dr-line.h{background:#c5cdd6;width:70%}
+.dr-line.s{width:50%}
+.dr-info{flex:1;min-width:0}
+.dr-name{font-size:9.5px;font-weight:500;color:#1a2a3a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dr-meta{font-size:8px;color:#6a7a8a;margin-top:2px}
+.viewer{flex:1;display:flex;flex-direction:column;background:#1e2d3d;min-width:0}
+.vbar{background:#080f1a;border-bottom:1px solid #1a2740;padding:7px 12px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.vname{font-size:12px;color:#e8f0f6;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vbadge{font-size:9px;padding:2px 8px;border-radius:10px;font-weight:500}
+.vcontent{flex:1;display:flex;align-items:center;justify-content:center}
+.pdf{background:#fff;border-radius:3px;width:290px;height:380px;padding:24px 28px;display:flex;flex-direction:column;gap:7px}
+.pl{height:7px;border-radius:2px;background:#e8eaed}
+.pl.t{height:13px;background:#c5cdd6;width:58%;margin-bottom:6px}
+.pl.s{width:52%}.pl.m{width:76%}
+.pl.logo{height:18px;width:36%;background:#dde0e4;margin-bottom:10px}
+.vfoot{background:#080f1a;border-top:1px solid #1a2740;padding:5px 12px;font-size:10px;color:#4a6070;display:flex;gap:10px;flex-shrink:0}
+.vfoot span{color:#8ab0c8}
+</style>
+<div style="padding:0 0 6px;font-size:11px;color:var(--color-text-secondary);font-weight:500">Case 1 — single-page documents, one per row, category grouped</div>
+<div class="app">
+  <div class="sb">
+    <div class="sb-head">
+      <div class="sb-title">Documents</div>
+      <div class="sb-sub">10 docs · 4 categories</div>
+    </div>
+    <div class="sb-scroll" id="c1-scroll"></div>
+  </div>
+  <div class="viewer">
+    <div class="vbar">
+      <span class="vname" id="c1-vname">—</span>
+      <span class="vbadge" id="c1-badge"></span>
+    </div>
+    <div class="vcontent">
+      <div class="pdf" id="c1-pdf">
+        <div class="pl logo"></div><div class="pl t"></div>
+        <div class="pl"></div><div class="pl s"></div><div class="pl m"></div>
+        <div class="pl"></div><div class="pl s"></div><div class="pl"></div>
+        <div class="pl m"></div><div class="pl s"></div>
+      </div>
+    </div>
+    <div class="vfoot">
+      <div>Category: <span id="c1-fcat">—</span></div>
+      <div>Document: <span id="c1-fdoc">—</span></div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+const C=[
+  {l:'Invoice',   c:'#1a7fd4',bg:'#deeeff',tx:'#0C447C'},
+  {l:'Declaration',c:'#0F6E56',bg:'#d5f2e8',tx:'#085041'},
+  {l:'Form 15',  c:'#854F0B',bg:'#fde8c0',tx:'#633806'},
+  {l:'Permit',   c:'#993556',bg:'#f9d8e6',tx:'#72243E'},
+];
+const D=[
+  {n:'Invoice_001',cat:0},{n:'Invoice_002',cat:0},{n:'Invoice_003',cat:0},
+  {n:'Declaration_A',cat:1},{n:'Declaration_B',cat:1},
+  {n:'Form15_Jan',cat:2},{n:'Form15_Feb',cat:2},{n:'Form15_Mar',cat:2},
+  {n:'Permit_Alpha',cat:3},{n:'Permit_Beta',cat:3},
+];
+let active=0;
+function build(){
+  const area=document.getElementById('c1-scroll');area.innerHTML='';
+  const g={};D.forEach((d,i)=>{if(!g[d.cat])g[d.cat]=[];g[d.cat].push({d,i})});
+  Object.keys(g).forEach(ci=>{
+    const cat=C[ci];
+    const h=document.createElement('div');h.className='cat-hdr';
+    h.style.cssText=`background:${cat.bg};color:${cat.tx}`;
+    h.innerHTML=`<span class="cat-dot" style="background:${cat.c}"></span>${cat.l}<span style="margin-left:auto;font-size:9px;opacity:.6">${g[ci].length}</span>`;
+    area.appendChild(h);
+    g[ci].forEach(({d,i})=>{
+      const r=document.createElement('div');r.className='doc-row'+(i===active?' active':'');r.id='c1r'+i;
+      r.onclick=()=>sel(i);
+      r.innerHTML=`<div class="dr-thumb"><span class="dr-stripe" style="background:${cat.c}"></span><div class="dr-line h"></div><div class="dr-line"></div><div class="dr-line s"></div><div class="dr-line"></div><div class="dr-line"></div></div><div class="dr-info"><div class="dr-name">${d.n}</div><div class="dr-meta">${cat.l}</div></div>`;
+      area.appendChild(r);
+    });
+  });
+}
+function sel(i){
+  document.querySelectorAll('.doc-row').forEach(r=>r.classList.remove('active'));
+  const el=document.getElementById('c1r'+i);if(el){el.classList.add('active');el.scrollIntoView({block:'nearest',behavior:'smooth'});}
+  active=i;const d=D[i];const cat=C[d.cat];
+  document.getElementById('c1-vname').textContent=d.n+'.pdf';
+  const b=document.getElementById('c1-badge');b.textContent=cat.l;b.style.background=cat.bg;b.style.color=cat.tx;
+  document.getElementById('c1-pdf').style.borderTop=`4px solid ${cat.c}`;
+  document.getElementById('c1-fcat').textContent=cat.l;
+  document.getElementById('c1-fdoc').textContent=`${i+1} of ${D.length}`;
+}
+build();sel(0);
+})();
+</script>
