@@ -1,0 +1,14 @@
+{
+  "mode": "single",
+  "categories": [
+    { "id": "invoice",     "label": "Invoice",     "color": "#1a7fd4" },
+    { "id": "declaration", "label": "Declaration", "color": "#0F6E56" },
+    { "id": "form15",      "label": "Form 15",     "color": "#854F0B" }
+  ],
+  "documents": [
+    { "id": "doc_001", "name": "Invoice_2024_001", "src": "files/inv_001.pdf", "category": "invoice" },
+    { "id": "doc_002", "name": "Invoice_2024_002", "src": "files/inv_002.pdf", "category": "invoice" },
+    { "id": "doc_003", "name": "Declaration_A",    "src": "files/dec_a.pdf",  "category": "declaration" },
+    { "id": "doc_004", "name": "Form15_Jan",       "src": "files/f15_jan.pdf","category": "form15" }
+  ]
+}

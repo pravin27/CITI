@@ -1,0 +1,30 @@
+{
+  "mode": "multi",
+  "categories": [
+    { "id": "invoice",     "label": "Invoice",     "color": "#1a7fd4" },
+    { "id": "declaration", "label": "Declaration", "color": "#0F6E56" },
+    { "id": "form15",      "label": "Form 15",     "color": "#854F0B" }
+  ],
+  "documents": [
+    {
+      "id": "doc_001",
+      "name": "Package_2024_001",
+      "src": "files/pkg_001.pdf",
+      "pages": [
+        { "page": 1, "category": "invoice",     "label": "Cover invoice" },
+        { "page": 2, "category": "declaration", "label": "Customs form" },
+        { "page": 3, "category": "declaration", "label": "Supporting docs" },
+        { "page": 4, "category": "invoice",     "label": "Line items" }
+      ]
+    },
+    {
+      "id": "doc_002",
+      "name": "Package_2024_002",
+      "src": "files/pkg_002.pdf",
+      "pages": [
+        { "page": 1, "category": "form15",  "label": "Declaration" },
+        { "page": 2, "category": "invoice", "label": "Invoice copy" }
+      ]
+    }
+  ]
+}
