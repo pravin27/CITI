@@ -1,0 +1,52 @@
+{
+  "mode": "multi",
+  "categories": [
+    { "id": "invoice",     "label": "Invoice",     "color": "#1a7fd4" },
+    { "id": "declaration", "label": "Declaration", "color": "#0F6E56" },
+    { "id": "permit",      "label": "Permit",      "color": "#993556" }
+  ],
+  "documents": [
+    {
+      "id": "pdf_5",
+      "name": "pdf_5",
+      "src": "/test-docs/pdf_5.pdf",
+      "pageCategories": [
+        { "category": "invoice",     "pages": [1, 2, 3] },
+        { "category": "declaration", "pages": [4, 5] }
+      ]
+    },
+    {
+      "id": "pdf_4",
+      "name": "pdf_4",
+      "src": "/test-docs/pdf_4.pdf",
+      "pageCategories": [
+        { "category": "invoice",     "pages": [1, 2, 3] },
+        { "category": "declaration", "pages": [4] }
+      ]
+    },
+    {
+      "id": "pdf_12",
+      "name": "pdf_12",
+      "src": "/test-docs/pdf_12.pdf",
+      "pageCategories": [
+        { "category": "invoice",     "pages": [1, 2] },
+        { "category": "declaration", "pages": [3, 4, 5, 6, 7, 8] },
+        { "category": "permit",      "pages": [9, 10] }
+      ]
+    },
+    {
+      "id": "pdf_279",
+      "name": "pdf_279",
+      "src": "/test-docs/pdf_279.pdf",
+      "pageCategories": [
+        {
+          "category": "invoice",
+          "pages": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
+                    21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40]
+        },
+        { "category": "declaration", "pages": [41,42,43,44,45,46] },
+        { "category": "permit",      "pages": [47,48,49,50] }
+      ]
+    }
+  ]
+}
