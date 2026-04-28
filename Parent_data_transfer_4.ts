@@ -21,6 +21,16 @@ jswindow.addEventListener('message', (e) => {
   }, '*');
 });
 
+//updated
+iframe.contentWindow.postMessage({
+  type:           'LOAD_SINGLEDOC',
+  fileName:       'invoice.pdf',
+  buffer,
+  showFieldsPanel: true,   // show right panel
+  showAnnotation:  true,   // show annotation button
+  Click2Pick:      true,   // enable box mode on load
+}, '*');
+
 
 // 1. Trigger — ask viewer for current captures
 function requestCaptures() {
