@@ -50,3 +50,11 @@ window.addEventListener('message', (e) => {
 
   // Save to backend, update your UI, etc.
 });
+
+
+location ~* \.(mjs|js|css|png|svg|ico|woff2?)$ {
+        root /usr/share/nginx/html;    # ← same dist folder
+        try_files $uri =404;           # return 404 if not found, NOT index.html
+        add_header Content-Type "application/javascript";
+        add_header Cache-Control "public, max-age=31536000, immutable";
+}
