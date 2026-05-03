@@ -209,7 +209,9 @@ export default function App() {
         }
 
         // Build the highlight index from the merged list synchronously
-        const index = new Map<number, import('./adapters/types').HighlightRect[]>();
+        // HighlightRect is a local interface in appStore.ts — inline the shape here
+        type HRect = { x:number; y:number; width:number; height:number; id:string; color?:string; type?:'external' };
+        const index = new Map<number, HRect[]>();
         for (const c of merged) {
           if (!index.has(c.page)) index.set(c.page, []);
           index.get(c.page)!.push({
