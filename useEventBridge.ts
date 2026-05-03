@@ -13,6 +13,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { DocumentManifest } from '../types/multiDoc';
 import type { CaptureItem, Category, WordEntry } from '../adapters/types';
+import { useAppStore } from '../store/appStore';
 
 // ── Environment ───────────────────────────────────────────────────────────────
 const ALLOWED_ORIGIN: string =
@@ -89,6 +90,7 @@ export interface CapturePreviewPayload {
 export interface EventBridgeCallbacks {
   onLoadSingleDoc: (buffer: ArrayBuffer, fileName: string, meta: SingleDocMeta) => void;
   onLoadManifest:  (manifest: DocumentManifest, activeDocId?: string, activeBuffer?: ArrayBuffer, meta?: SingleDocMeta) => void;
+  onReset?:        () => void;  // optional — called on RESET_VIEWER
   onHighlight:     (payload: HighlightPayload) => void;
   onCaptureAck:     (tempId: string, realId: string) => void;
   onCaptureDelete?: (id: string) => void;
@@ -179,7 +181,7 @@ export function useEventBridge(callbacks: EventBridgeCallbacks): EventBridgeAPI 
         // Send this before loading a new document set, or when navigating away.
         case 'RESET_VIEWER': {
           useAppStore.getState().closeFile();
-          if (multiDoc?.clearMultiDoc) multiDoc.clearMultiDoc();
+          cbRef.current.onReset?.();
           break;
         }
 
