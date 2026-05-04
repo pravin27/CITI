@@ -1,0 +1,5 @@
+location / {
+    add_header Permission-Policy "sync-xhr=*";
+    # or limit to parent origin:
+    add_header Permission-Policy "sync-xhr=(self \"https://your-parent-app.com\")";
+}
