@@ -1,0 +1,180 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.tabs{display:flex;gap:2px;border-bottom:0.5px solid var(--color-border-tertiary);margin-bottom:1rem;flex-wrap:wrap}
+.tab{font-size:11px;font-weight:500;padding:5px 11px;cursor:pointer;border-radius:4px 4px 0 0;color:var(--color-text-secondary);border:0.5px solid transparent;border-bottom:none;margin-bottom:-0.5px;white-space:nowrap}
+.tab.active{background:var(--color-background-primary);color:var(--color-text-primary);border-color:var(--color-border-tertiary);border-bottom-color:var(--color-background-primary)}
+.panel{display:none}.panel.active{display:block}
+pre{font-family:var(--font-mono);font-size:11px;line-height:1.65;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:10px 12px;overflow-x:auto;white-space:pre;color:var(--color-text-primary);margin:8px 0}
+.kw{color:#7c6fef}.str{color:#2d9e74}.num{color:#c07a0a}.key{color:#185fa5}.cmt{color:#888;font-style:italic}
+.badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;font-weight:500;background:var(--color-background-info);color:var(--color-text-info)}
+.desc{font-size:12px;color:var(--color-text-secondary);line-height:1.6;padding:7px 10px;background:var(--color-background-secondary);border-radius:6px;border-left:2px solid var(--color-border-secondary);margin-bottom:8px}
+.step{font-size:11px;color:var(--color-text-secondary);margin:6px 0 2px}
+.note{font-size:11px;color:var(--color-text-warning);background:var(--color-background-warning);padding:4px 8px;border-radius:4px;margin-top:6px}
+</style>
+<div style="padding:0.5rem 0">
+<div class="tabs">
+  <div class="tab active" onclick="show(0)">F1 — x/y/w/h</div>
+  <div class="tab" onclick="show(1)">F2 — bbox</div>
+  <div class="tab" onclick="show(2)">F3/4 — rectangle</div>
+  <div class="tab" onclick="show(3)">F5 — coordinates</div>
+  <div class="tab" onclick="show(4)">F6 — min/max</div>
+  <div class="tab" onclick="show(5)">F7 — polygon</div>
+  <div class="tab" onclick="show(6)">F8 — left/right</div>
+  <div class="tab" onclick="show(7)">F9 — edges</div>
+  <div class="tab" onclick="show(8)">Normalise</div>
+</div>
+
+<div id="p0" class="panel active">
+<div class="desc"><span class="badge">Format 1</span> Flat x/y — most common. Width aliases: <code>w</code> or <code>width</code>. Height: <code>h</code> or <code>height</code>.</div>
+<pre><span class="cmt">// Input (fractions 0-1 OR absolute pixels/pts)</span>
+{ <span class="key">x</span>: <span class="num">0.10</span>, <span class="key">y</span>: <span class="num">0.12</span>, <span class="key">width</span>: <span class="num">0.25</span>, <span class="key">height</span>: <span class="num">0.03</span> }
+{ <span class="key">x</span>: <span class="num">72</span>,   <span class="key">y</span>: <span class="num">86</span>,   <span class="key">w</span>: <span class="num">180</span>,         <span class="key">h</span>: <span class="num">21</span>          }
+
+<span class="cmt">// extractRawCoords → always returns [x, y, w, h]</span>
+<span class="kw">return</span> [item.x, item.y,
+        (item.width ?? item.w),
+        (item.height ?? item.h)];</pre>
+</div>
+
+<div id="p1" class="panel">
+<div class="desc"><span class="badge">Format 2</span> <code>bbox</code> array — two sub-forms. Auto-detects which by checking if c&gt;a AND d&gt;b (corner points) vs treating as x,y,w,h.</div>
+<pre><span class="cmt">// Sub-form A: [x, y, w, h]</span>
+{ <span class="key">bbox</span>: [<span class="num">72</span>, <span class="num">86</span>, <span class="num">180</span>, <span class="num">21</span>] }
+
+<span class="cmt">// Sub-form B: [x1, y1, x2, y2] corner points</span>
+{ <span class="key">bbox</span>: [<span class="num">72</span>, <span class="num">86</span>, <span class="num">252</span>, <span class="num">107</span>] }
+
+<span class="cmt">// Detection logic:</span>
+<span class="kw">const</span> [a, b, cc, d] = item.bbox;
+<span class="kw">if</span> (cc > a && d > b && (a>1 || b>1 || cc>1 || d>1)) {
+  <span class="cmt">// corner-point form → convert to x,y,w,h</span>
+  <span class="kw">return</span> [a, b, cc-a, d-b];
+}
+<span class="kw">return</span> [a, b, cc, d]; <span class="cmt">// already x,y,w,h</span></pre>
+<div class="note">⚠ If pageWidth is provided on the item, cc is compared to pageWidth×0.95 to confirm corner vs width.</div>
+</div>
+
+<div id="p2" class="panel">
+<div class="desc"><span class="badge">Format 3/4</span> <code>rectangle</code> array — same two sub-forms as bbox, same detection logic.</div>
+<pre><span class="cmt">// Sub-form A: [x, y, w, h]</span>
+{ <span class="key">rectangle</span>: [<span class="num">0.10</span>, <span class="num">0.12</span>, <span class="num">0.25</span>, <span class="num">0.03</span>] }
+
+<span class="cmt">// Sub-form B: [x1, y1, x2, y2] corner points</span>
+{ <span class="key">rectangle</span>: [<span class="num">72</span>, <span class="num">86</span>, <span class="num">252</span>, <span class="num">107</span>] }
+
+<span class="cmt">// Same detection as bbox:</span>
+<span class="kw">const</span> [a, b, c, d] = item.rectangle;
+<span class="kw">if</span> (c > a && d > b && (a>1||b>1||c>1||d>1))
+  <span class="kw">return</span> [a, b, c-a, d-b]; <span class="cmt">// corner → x,y,w,h</span>
+<span class="kw">return</span> [a, b, c, d];</pre>
+</div>
+
+<div id="p3" class="panel">
+<div class="desc"><span class="badge">Format 5</span> <code>coordinates</code> array in <b>ymin, xmin, ymax, xmax</b> order — note axis swap (y first).</div>
+<pre><span class="cmt">// Input: [ymin, xmin, ymax, xmax]</span>
+{ <span class="key">coordinates</span>: [<span class="num">86</span>, <span class="num">72</span>, <span class="num">107</span>, <span class="num">252</span>] }
+<span class="cmt">//              ymin xmin ymax  xmax</span>
+
+<span class="cmt">// extractRawCoords — swap axes, convert to x,y,w,h:</span>
+<span class="kw">const</span> [ymin, xmin, ymax, xmax] = item.coordinates;
+<span class="kw">return</span> [xmin, ymin, xmax-xmin, ymax-ymin];
+<span class="cmt">//      x     y     w           h</span></pre>
+<div class="note">⚠ Axis order is Y-first (common in ML/AI output formats). The viewer swaps back to X-first internally.</div>
+</div>
+
+<div id="p4" class="panel">
+<div class="desc"><span class="badge">Format 6</span> Flat min/max — four named fields covering the bounding box corners.</div>
+<pre><span class="cmt">// Input</span>
+{ <span class="key">xmin</span>: <span class="num">72</span>, <span class="key">ymin</span>: <span class="num">86</span>, <span class="key">xmax</span>: <span class="num">252</span>, <span class="key">ymax</span>: <span class="num">107</span> }
+
+<span class="cmt">// extractRawCoords:</span>
+<span class="kw">const</span> x = item.xmin, y = item.ymin;
+<span class="kw">return</span> [x, y, item.xmax - x, item.ymax - y];</pre>
+</div>
+
+<div id="p5" class="panel">
+<div class="desc"><span class="badge">Format 7</span> <code>bbox_relative</code> polygon — array of [x,y] point pairs (3–4+ points). Viewer computes the axis-aligned bounding box (AABB) — the smallest rectangle that encloses all points.</div>
+<pre><span class="cmt">// Input: 4-corner polygon [[x,y],[x,y],[x,y],[x,y]]</span>
+{ <span class="key">bbox_relative</span>: [
+    [<span class="num">0.10</span>, <span class="num">0.12</span>],   <span class="cmt">// top-left</span>
+    [<span class="num">0.35</span>, <span class="num">0.12</span>],   <span class="cmt">// top-right</span>
+    [<span class="num">0.35</span>, <span class="num">0.15</span>],   <span class="cmt">// bottom-right</span>
+    [<span class="num">0.10</span>, <span class="num">0.15</span>]    <span class="cmt">// bottom-left</span>
+  ]
+}
+
+<span class="cmt">// extractRawCoords — compute AABB from all points:</span>
+<span class="kw">const</span> pts = item.bbox_relative;
+<span class="kw">const</span> xs  = pts.map(p => p[<span class="num">0</span>]);
+<span class="kw">const</span> ys  = pts.map(p => p[<span class="num">1</span>]);
+<span class="kw">return</span> [
+  Math.min(...xs), Math.min(...ys),           <span class="cmt">// x, y (top-left)</span>
+  Math.max(...xs) - Math.min(...xs),          <span class="cmt">// width</span>
+  Math.max(...ys) - Math.min(...ys),          <span class="cmt">// height</span>
+];</pre>
+<div class="note">Works for any polygon (triangle, quad, rotated rect). Non-axis-aligned shapes lose rotation — only the enclosing rectangle is highlighted.</div>
+</div>
+
+<div id="p6" class="panel">
+<div class="desc"><span class="badge">Format 8</span> <code>left/right/width/height</code> — common in OCR engines. <code>left</code>=x origin, <code>width</code> preferred over deriving from <code>right</code>. <code>top</code> used as y if present.</div>
+<pre><span class="cmt">// With top (full position)</span>
+{ <span class="key">left</span>: <span class="num">72</span>, <span class="key">top</span>: <span class="num">86</span>, <span class="key">width</span>: <span class="num">180</span>, <span class="key">height</span>: <span class="num">21</span> }
+
+<span class="cmt">// Without top (y defaults to 0)</span>
+{ <span class="key">left</span>: <span class="num">72</span>, <span class="key">right</span>: <span class="num">252</span>, <span class="key">height</span>: <span class="num">21</span> }
+
+<span class="cmt">// extractRawCoords:</span>
+<span class="kw">const</span> l = item.left;
+<span class="kw">const</span> y = <span class="kw">typeof</span> item.top === <span class="str">'number'</span> ? item.top : <span class="num">0</span>;
+<span class="kw">const</span> w = <span class="kw">typeof</span> item.width === <span class="str">'number'</span>
+  ? item.width
+  : item.right - l;       <span class="cmt">// derive from right if no width</span>
+<span class="kw">return</span> [l, y, w, item.height];</pre>
+</div>
+
+<div id="p7" class="panel">
+<div class="desc"><span class="badge">Format 9</span> Four edge values — all four sides of the bounding box explicitly. No width/height field present.</div>
+<pre><span class="cmt">// Input: all four edges</span>
+{ <span class="key">left</span>: <span class="num">72</span>, <span class="key">top</span>: <span class="num">86</span>, <span class="key">right</span>: <span class="num">252</span>, <span class="key">bottom</span>: <span class="num">107</span> }
+
+<span class="cmt">// extractRawCoords:</span>
+<span class="kw">const</span> l = item.left,  t = item.top;
+<span class="kw">const</span> r = item.right, b = item.bottom;
+<span class="kw">return</span> [l, t, r - l, b - t];
+<span class="cmt">//      x  y  width   height</span></pre>
+<div class="note">Differs from Format 8 by the absence of <code>width</code>/<code>height</code> — the viewer uses this to distinguish the two.</div>
+</div>
+
+<div id="p8" class="panel">
+<div class="desc">After extraction, all formats produce <code>[x, y, w, h]</code>. These are then normalised to 0–1 fractions using the page dimensions. The viewer draws at: <code>canvas_x = x × pagePixelWidth</code>, <code>canvas_y = y × pagePixelHeight</code>.</div>
+<pre><span class="cmt">// All values 0-1 → already fractional, pass through</span>
+[<span class="num">0.10</span>, <span class="num">0.12</span>, <span class="num">0.25</span>, <span class="num">0.03</span>] → stored as-is
+
+<span class="cmt">// Absolute values → divide by page dimensions</span>
+<span class="cmt">// Page dims come from the loaded document (not hardcoded):</span>
+<span class="cmt">//   PDF:   pdfjs page.view in pts (e.g. 612×792 for A4)</span>
+<span class="cmt">//   TIFF:  decoded pixel size (e.g. 1700×2200 at 300dpi)</span>
+<span class="cmt">//   DOCX:  DocAdapter canvas 794×1123px</span>
+dims = adapter.getPageDimensions(page); <span class="cmt">// {width, height}</span>
+scale = detectBestUnitScale(rawMax, dims); <span class="cmt">// pts/px/inch/cm</span>
+x_norm = rawX * scale / dims.width;
+y_norm = rawY * scale / dims.height;
+w_norm = rawW * scale / dims.width;
+h_norm = rawH * scale / dims.height;
+
+<span class="cmt">// Rendering on canvas (PDFViewer, ImageViewer)</span>
+ctx.fillRect(
+  x_norm * canvasW,   <span class="cmt">// pixel x on screen</span>
+  y_norm * canvasH,   <span class="cmt">// pixel y on screen</span>
+  w_norm * canvasW,   <span class="cmt">// pixel width</span>
+  h_norm * canvasH,   <span class="cmt">// pixel height</span>
+);</pre>
+</div>
+</div>
+
+<script>
+function show(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.panel').forEach((p,j)=>p.classList.toggle('active',i===j));
+}
+</script>
