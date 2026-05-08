@@ -1,0 +1,28 @@
+// Absolute values → normalise using page dimensions from adapter
+const dims = adapter.getPageDimensions(page);
+// dims = { width: 612, height: 792 }  ← PDF A4 in pts, from pdfjs page.view
+// dims = { width: 1700, height: 2200 } ← TIFF at 300dpi, from decoded bitmap
+// dims = { width: 794, height: 1123 }  ← DOCX canvas @96dpi
+
+const scale = detectBestUnitScale(max(rx+rw, ry+rh), dims.width, dims.height);
+// scale = 1      if raw unit = PDF pts  (same unit as dims)
+// scale = 0.75   if raw unit = px@96dpi (72/96)
+// scale = 0.24   if raw unit = px@300dpi (72/300)
+
+const [x, y, w, h] = normaliseCoords(raw, e, page, adapter, null);
+// Result: x = 72*scale/dims.width  = 72*1/612  = 0.1176
+// Result: y = 86*scale/dims.height = 86*1/792  = 0.1086
+// etc.
+
+
+// Inside paintPage(ctx, W, H, page, ds, caches):
+// rect = { x: 0.1176, y: 0.1086, width: 0.2941, height: 0.0265 }
+rr(ctx,
+  rect.x      * W,   // 0.1176 × 893 = 105px from left
+  rect.y      * H,   // 0.1086 × 1157 = 126px from top
+  rect.width  * W,   // 0.2941 × 893 = 263px wide
+  rect.height * H,   // 0.0265 × 1157 = 31px tall
+  RADIUS
+);
+ctx.fill();
+ctx.stroke();
