@@ -668,8 +668,8 @@ export function ViewerToolbar() {
               title="Split & Merge"
               className="w-8 h-8 rounded flex items-center justify-center shrink-0
                 border border-transparent bg-transparent
-                text-white/80 opacity-90
-                hover:bg-[#EF9F27]/18 hover:border-[#EF9F27]/50 hover:text-[#EF9F27] hover:opacity-100
+                text-white opacity-90 hover:opacity-100
+                hover:bg-white/10 hover:border-white/20
                 transition-all"
             >
               {/* Clean scissors icon — two blades crossing, two ring handles */}
