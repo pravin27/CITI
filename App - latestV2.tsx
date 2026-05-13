@@ -122,29 +122,35 @@ export default function App() {
           ? originalMsg.activeBuffer
           : null;
 
-        const doPost = () => {
+        // postToSM: attempts to post smMessage to the iframe.
+        // contentWindow is available even for cross-origin iframes.
+        // We retry every 100ms for up to 5 seconds in case the iframe
+        // is still loading — this handles both first open and subsequent opens.
+        const postToSM = () => {
           const win = smIframeRef.current?.contentWindow;
-          if (!win) return;
+          if (!win) return false;
           if (payloadBuf) {
             const buf = payloadBuf.slice(0);
-            if (originalMsg.buffer instanceof ArrayBuffer)       (smMessage.payload as any).buffer = buf;
-            if (originalMsg.activeBuffer instanceof ArrayBuffer) (smMessage.payload as any).activeBuffer = buf;
+            if (originalMsg.buffer instanceof ArrayBuffer)
+              (smMessage.payload as any).buffer = buf;
+            if (originalMsg.activeBuffer instanceof ArrayBuffer)
+              (smMessage.payload as any).activeBuffer = buf;
             win.postMessage(smMessage, '*', [buf]);
           } else {
             win.postMessage(smMessage, '*');
           }
+          return true;
         };
-  
-        // Register doPost so the iframe onLoad handler can call it
-        (window as any).__doccapture_sm_doPost = doPost;
-  
-        // Cross-origin iframes block contentDocument access — never use it.
-        // Use our own load-tracking ref instead.
-        if (smIframeLoaded.current) {
-          // Iframe already loaded (2nd+ open) — post immediately
-          doPost();
+
+        // Try immediately (works when iframe already loaded from previous open)
+        if (!postToSM()) {
+          // Iframe not ready yet — retry every 100ms until it is (max 5s)
+          let attempts = 0;
+          const retry = setInterval(() => {
+            attempts++;
+            if (postToSM() || attempts >= 50) clearInterval(retry);
+          }, 100);
         }
-        // else: iframe onLoad will fire and call doPost via __doccapture_sm_doPost
 
       // Notify parent Angular that SM mode is now active
       if (isEmbedded) window.parent.postMessage({ type: 'SPLIT_MERGE_OPENED', fileName: st.fileName }, '*');
