@@ -112,29 +112,34 @@ export function detectUnitScaleBatch(
   maxRawX: number, maxRawY: number,
   pageW:   number, pageH:   number,
 ): number | null {
-  // ── Hard override: if globalMaxX exceeds the page width in pts, it CANNOT
-  // be pts — must be pixels. This resolves borderline ambiguity where per-item
-  // scoring picks pts incorrectly (e.g. x+w=676 > 612pt page width → pixels).
-  // Standard PDF page widths in pts: Letter=612, A4=595, Legal=612, Ledger=792.
-  // If maxRawX > pageW, the only valid interpretation is px (÷ px page dims).
+  const pxW = pageW * (96 / 72);   // 612 → 816, 595 → 793
+  const pxH = pageH * (96 / 72);   // 792 → 1056, 842 → 1123
+
+  console.log('[coords] detectUnitScaleBatch:',
+    'maxRawX='+maxRawX.toFixed(1), 'maxRawY='+maxRawY.toFixed(1),
+    'pageW_pts='+pageW, 'pageH_pts='+pageH,
+    'pageW_px='+pxW.toFixed(0), 'pageH_px='+pxH.toFixed(0));
+
+  // Hard override: maxRawX > pageW_pts → impossible to be pts → must be pixels
   if (maxRawX > pageW) {
-    // Derive px page dims from pts: pts × (96/72) = px@96dpi
-    const pxW = pageW * (96 / 72);
-    const pxH = pageH * (96 / 72);
-    // Sanity check: maxRaw fits within px dims (with 15% tolerance)
     if (maxRawX <= pxW * 1.15 && maxRawY <= pxH * 1.15) {
-      return 96 / 72; // scale = px→pts conversion = 0.75
+      console.log('[coords] → OVERRIDE px@96 (maxRawX '+maxRawX.toFixed(1)+' > pageW_pts '+pageW+') scale=0.75');
+      return 96 / 72;  // 1.333... — wait, this is WRONG direction
+      // normaliseCoords does: x * scale / pageW_pts
+      // We want: x / pxW = x / (pageW * 96/72) = x * (72/96) / pageW = x * 0.75 / pageW
+      // So scale should be 72/96 = 0.75, NOT 96/72
     }
   }
-  // ── Hard override: if maxRawY also exceeds page height in pts, same logic
   if (maxRawY > pageH) {
-    const pxH = pageH * (96 / 72);
     if (maxRawY <= pxH * 1.15) {
-      return 96 / 72;
+      console.log('[coords] → OVERRIDE px@96 via Y (maxRawY '+maxRawY.toFixed(1)+' > pageH_pts '+pageH+') scale=0.75');
+      return 72 / 96;
     }
   }
-  // ── Standard bestFitScale for non-ambiguous cases
-  return bestFitScale(maxRawX, maxRawY, pageW, pageH);
+
+  const scale = bestFitScale(maxRawX, maxRawY, pageW, pageH);
+  console.log('[coords] → bestFitScale result:', scale);
+  return scale;
 }
 
 // ── Coordinate extraction ─────────────────────────────────────────────────────
@@ -377,10 +382,18 @@ export function normaliseBatch(
     const raw = extractRawCoords(item);
     if (!raw) continue;
     const [x, y, w, h] = raw;
-    if (x >= 0 && x <= 1 && y >= 0 && y <= 1 && w <= 1 && h <= 1) continue;
+    console.log('[normaliseBatch] item raw:', JSON.stringify({x,y,w,h}),
+      'bbox:', JSON.stringify((item as any).bbox),
+      '__extractedPage:', (item as any).__extractedPage);
+    if (x >= 0 && x <= 1 && y >= 0 && y <= 1 && w <= 1 && h <= 1) {
+      console.log('[normaliseBatch] → already fractional, skipping');
+      continue;
+    }
     const pg = getPage(item);
     const cur = pageMaxExtent.get(pg) ?? { maxX: 0, maxY: 0 };
-    pageMaxExtent.set(pg, { maxX: Math.max(cur.maxX, x+w), maxY: Math.max(cur.maxY, y+h) });
+    const next = { maxX: Math.max(cur.maxX, x+w), maxY: Math.max(cur.maxY, y+h) };
+    console.log('[normaliseBatch] page='+pg+' maxX='+next.maxX.toFixed(1)+' maxY='+next.maxY.toFixed(1));
+    pageMaxExtent.set(pg, next);
   }
 
   // Resolve per-page: use adapter dims + unit detection
@@ -419,10 +432,15 @@ export function normaliseBatch(
     const res = pageResolved.get(pg);
     if (res) {
       const { width, height, scale } = res;
-      return { raw: item, coords: clamp4([x*scale/width, y*scale/height,
-                                          w*scale/width, h*scale/height]) };
+      const coords = clamp4([x*scale/width, y*scale/height, w*scale/width, h*scale/height]);
+      console.log('[normaliseBatch] Pass2 page='+pg,
+        'x='+x+' y='+y+' w='+w+' h='+h,
+        '→ scale='+scale.toFixed(4)+' dims='+width+'×'+height,
+        '→ norm:', coords.map(v => v.toFixed(3)).join(','));
+      return { raw: item, coords };
     }
     // Fallback to per-item normalisation
+    console.warn('[normaliseBatch] Pass2 FALLBACK for page='+pg, 'item=', JSON.stringify(item).slice(0,80));
     return { raw: item, coords: normaliseCoords(raw, item, pg, adapter, null) };
   });
 }
