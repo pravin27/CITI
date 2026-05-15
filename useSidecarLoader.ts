@@ -310,20 +310,23 @@ function parseCapturedFields(
     if (raw) {
       const [rx, ry, rw, rh] = raw;
       const resolved = resolvedSizes.get(page);
+      console.log('[parseCapturedFields Pass2] item:', JSON.stringify((item as any).value ?? ''),
+        'raw:', rx.toFixed(1), ry.toFixed(1), rw.toFixed(1), rh.toFixed(1),
+        'resolved:', resolved ? resolved.width.toFixed(1)+'×'+resolved.height.toFixed(1) : 'NULL',
+        'page:', page);
       if (resolved && (rx > 1 || ry > 1 || rw > 1 || rh > 1)) {
-        // Use pre-resolved px dims directly — bypass normaliseCoords step 3
-        // which would re-run unit detection per-item and pick wrong scale
         x = Math.max(0, Math.min(1, rx / resolved.width));
         y = Math.max(0, Math.min(1, ry / resolved.height));
         w = Math.max(0, Math.min(1, rw / resolved.width));
         h = Math.max(0, Math.min(1, rh / resolved.height));
+        console.log('[parseCapturedFields Pass2] → DIRECT x='+x.toFixed(3)+' y='+y.toFixed(3)+' w='+w.toFixed(3)+' h='+h.toFixed(3));
       } else if (rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1) {
-        // Already normalised
         x = rx; y = ry; w = rw; h = rh;
+        console.log('[parseCapturedFields Pass2] → ALREADY NORM');
       } else {
-        // Fallback
         const normalised = normaliseCoords(raw, item, page, adapter, resolved ?? null);
         [x, y, w, h] = normalised;
+        console.log('[parseCapturedFields Pass2] → FALLBACK normaliseCoords x='+x.toFixed(3)+' y='+y.toFixed(3));
       }
     }
 
