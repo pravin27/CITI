@@ -268,26 +268,32 @@ function parseCapturedFields(
   for (const [pg, { maxX, maxY }] of pageMaxExtent) {
     const adapterDims = adapter?.getPageDimensions(pg);
     if (adapterDims?.width && adapterDims?.height) {
-      const scale = detectUnitScaleBatch(maxX, maxY, adapterDims.width, adapterDims.height);
-      console.log('[parseCapturedFields] page='+pg+' maxX='+maxX.toFixed(1)+' scale='+scale+' adapterW='+adapterDims.width);
+      // Always derive effective pts dims first (removes UserUnit inflation)
+      const STD_LETTER_W = 612;
+      const STD_A4_W = 595;
+      let effW = adapterDims.width, effH = adapterDims.height;
+      if (adapterDims.width > 1000) {
+        const dL = Math.abs((adapterDims.width/STD_LETTER_W)-Math.round(adapterDims.width/STD_LETTER_W));
+        const dA = Math.abs((adapterDims.width/STD_A4_W)-Math.round(adapterDims.width/STD_A4_W));
+        const std = dL <= dA ? STD_LETTER_W : STD_A4_W;
+        effW = std;
+        effH = adapterDims.height / (adapterDims.width / std);
+      }
+
+      const scale = detectUnitScaleBatch(maxX, maxY, effW, effH);
+      console.log('[parseCapturedFields] page='+pg+' maxX='+maxX.toFixed(1)
+        +' effW='+effW.toFixed(1)+' scale='+scale);
+
       if (scale === null) {
-        // Null sentinel: coords are pixels. Derive px dims from effective pts.
-        const STD_LETTER_W = 612;
-        const STD_A4_W = 595;
-        let effW = adapterDims.width, effH = adapterDims.height;
-        if (adapterDims.width > 1000) {
-          const dL = Math.abs((adapterDims.width/STD_LETTER_W)-Math.round(adapterDims.width/STD_LETTER_W));
-          const dA = Math.abs((adapterDims.width/STD_A4_W)-Math.round(adapterDims.width/STD_A4_W));
-          const std = dL <= dA ? STD_LETTER_W : STD_A4_W;
-          effW = std;
-          effH = adapterDims.height / (adapterDims.width / std);
-        }
+        // Pixels: derive px dims from effective pts
         const pxW = effW * (96 / 72);
         const pxH = effH * (96 / 72);
         console.log('[parseCapturedFields] → px dims: '+pxW.toFixed(0)+'×'+pxH.toFixed(0));
         resolvedSizes.set(pg, { width: pxW, height: pxH });
       } else {
-        resolvedSizes.set(pg, { width: adapterDims.width / scale, height: adapterDims.height / scale });
+        // Pts (or other unit): divide by effW/effH (NOT adapterDims which is inflated)
+        console.log('[parseCapturedFields] → pts dims: '+effW.toFixed(1)+'×'+effH.toFixed(1));
+        resolvedSizes.set(pg, { width: effW / scale, height: effH / scale });
       }
     } else {
       resolvedSizes.set(pg, maxX > 1 || maxY > 1 ? { width: maxX, height: maxY } : null);
