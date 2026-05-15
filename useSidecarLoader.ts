@@ -296,8 +296,23 @@ function parseCapturedFields(
     let x = 0, y = 0, w = 0, h = 0;
 
     if (raw) {
-      const normalised = normaliseCoords(raw, item, page, adapter, resolvedSizes.get(page) ?? null);
-      [x, y, w, h] = normalised;
+      const [rx, ry, rw, rh] = raw;
+      const resolved = resolvedSizes.get(page);
+      if (resolved && (rx > 1 || ry > 1 || rw > 1 || rh > 1)) {
+        // Use pre-resolved px dims directly — bypass normaliseCoords step 3
+        // which would re-run unit detection per-item and pick wrong scale
+        x = Math.max(0, Math.min(1, rx / resolved.width));
+        y = Math.max(0, Math.min(1, ry / resolved.height));
+        w = Math.max(0, Math.min(1, rw / resolved.width));
+        h = Math.max(0, Math.min(1, rh / resolved.height));
+      } else if (rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1) {
+        // Already normalised
+        x = rx; y = ry; w = rw; h = rh;
+      } else {
+        // Fallback
+        const normalised = normaliseCoords(raw, item, page, adapter, resolved ?? null);
+        [x, y, w, h] = normalised;
+      }
     }
 
     let sourceFormat: CaptureItem['sourceFormat'] = 'flat';
