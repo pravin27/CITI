@@ -364,3 +364,4 @@ export function injectCapturedFields(json: unknown, adapter: ViewerAdapter | nul
 export function injectCategories(json: unknown) {
   return parseCategories(json);
 }
+
