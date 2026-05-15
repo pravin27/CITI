@@ -142,11 +142,14 @@ function parseWordIndex(
             // null sentinel: coords are pixels — use 96dpi px dims.
             // Normalise away UserUnit inflation first (e.g. 2550 → 638 pts).
             const STD_LETTER_W = 612;
+            const STD_A4_W = 595;
             let effW = adapterDims.width, effH = adapterDims.height;
             if (adapterDims.width > 1000) {
-              const userUnit = Math.round(adapterDims.width / STD_LETTER_W) || 1;
-              effW = adapterDims.width / userUnit;
-              effH = adapterDims.height / userUnit;
+              const dL = Math.abs((adapterDims.width/STD_LETTER_W)-Math.round(adapterDims.width/STD_LETTER_W));
+              const dA = Math.abs((adapterDims.width/STD_A4_W)-Math.round(adapterDims.width/STD_A4_W));
+              const std = dL <= dA ? STD_LETTER_W : STD_A4_W;
+              effW = std;                                          // exact: 612 or 595
+              effH = adapterDims.height / (adapterDims.width / std); // proportional
             }
             const pxW = effW * (96 / 72);
             const pxH = effH * (96 / 72);
@@ -270,11 +273,14 @@ function parseCapturedFields(
       if (scale === null) {
         // Null sentinel: coords are pixels. Derive px dims from effective pts.
         const STD_LETTER_W = 612;
+        const STD_A4_W = 595;
         let effW = adapterDims.width, effH = adapterDims.height;
         if (adapterDims.width > 1000) {
-          const userUnit = Math.round(adapterDims.width / STD_LETTER_W) || 1;
-          effW = adapterDims.width / userUnit;
-          effH = adapterDims.height / userUnit;
+          const dL = Math.abs((adapterDims.width/STD_LETTER_W)-Math.round(adapterDims.width/STD_LETTER_W));
+          const dA = Math.abs((adapterDims.width/STD_A4_W)-Math.round(adapterDims.width/STD_A4_W));
+          const std = dL <= dA ? STD_LETTER_W : STD_A4_W;
+          effW = std;
+          effH = adapterDims.height / (adapterDims.width / std);
         }
         const pxW = effW * (96 / 72);
         const pxH = effH * (96 / 72);
