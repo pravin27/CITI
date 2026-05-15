@@ -335,20 +335,33 @@ export function normaliseCoords(
   }
 
   // ── 3. Adapter real page dimensions (from loaded document) ───────────────
-  // adapter.getPageDimensions() returns the page size in native document units:
-  //   PDF:  points (1pt = 1/72 inch)  — stored via onPageLoad()
-  //   TIF:  pixels (from UTIF decoded canvas size)
-  //   DOC:  pixels (DocAdapter renders to 794×1123 canvas)
   if (adapter) {
     const dims = adapter.getPageDimensions(page);
     if (dims?.width && dims?.height) {
       const maxCoord = Math.max(x + w, y + h);
-      const scale = bestFitScale(maxCoord, maxCoord, dims.width, dims.height);
+
+      // Use detectUnitScaleBatch (not bestFitScale) so UserUnit inflation and
+      // the px@96 override are applied consistently with normaliseBatch.
+      const scale = detectUnitScaleBatch(maxCoord, maxCoord, dims.width, dims.height);
+
+      if (scale === null) {
+        // null sentinel: coords are pixels — derive px dims from effective pts
+        const STD_LETTER_W = 612;
+        let effW = dims.width, effH = dims.height;
+        if (dims.width > 1000) {
+          const userUnit = Math.round(dims.width / STD_LETTER_W) || 1;
+          effW = dims.width  / userUnit;
+          effH = dims.height / userUnit;
+        }
+        const pxW = effW * (96 / 72);
+        const pxH = effH * (96 / 72);
+        return clamp4([x/pxW, y/pxH, w/pxW, h/pxH]);
+      }
+
       if (scale !== null) {
         return clamp4([x*scale/dims.width, y*scale/dims.height,
                        w*scale/dims.width, h*scale/dims.height]);
       }
-      // No unit matched — coords might be in the same unit as the adapter
       if (x <= dims.width * 1.1 && y <= dims.height * 1.1) {
         return clamp4([x/dims.width, y/dims.height, w/dims.width, h/dims.height]);
       }
