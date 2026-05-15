@@ -640,12 +640,19 @@ export default function App() {
 
     // SET_CAPTURES — load or merge captures at any point after doc load
     onSetCaptures: (incoming, mode, _docId) => {
-      import('./utils/coords').then(({ extractRawCoords, normaliseCoords, normaliseBatch }) => {
+      import('./utils/coords').then(({ extractRawCoords, normaliseCoords, normaliseBatch, getExtractedPage }) => {
         const ad = useAppStore.getState().adapter;
 
         // Batch normalisation — consistent unit detection across all captures
         const incomingArr = incoming as any[];
-        const batchRes = normaliseBatch(incomingArr, (item: any) => item.page ?? 1, ad);
+        console.log('[App onSetCaptures] normaliseBatch for', incomingArr.length, 'captures:',
+          incomingArr.map((c: any) => JSON.stringify({bbox: c.bbox, page: c.page})).join(' | '));
+        const batchRes = normaliseBatch(incomingArr, (item: any) => {
+          const ep = (item as any).__extractedPage;
+          return typeof ep === 'number' ? ep : (item.page ?? 1);
+        }, ad);
+        console.log('[App onSetCaptures] batchResults:',
+          batchRes.map((r: any) => r.coords ? r.coords.map((v: number) => v.toFixed(3)).join(',') : 'null').join(' | '));
 
         const normalised = incomingArr.map((cap: any, i: number) => {
           const bc = batchRes[i]?.coords;
