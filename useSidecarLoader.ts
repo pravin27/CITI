@@ -251,7 +251,10 @@ function parseCapturedFields(
     if (!raw) continue;
     const [rx, ry, rw, rh] = raw;
     if (rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1 && rw <= 1 && rh <= 1) continue;
-    const page = typeof item.page === 'number' ? item.page : 1;
+    const raw0 = extractRawCoords(item); // sets __extractedPage for FORMAT 10
+    const ep = (item as any).__extractedPage;
+    const page = typeof ep === 'number' ? ep :
+                 typeof item.page === 'number' ? item.page : 1;
     const cur = pageMaxExtent.get(page) ?? { maxX: 0, maxY: 0 };
     pageMaxExtent.set(page, {
       maxX: Math.max(cur.maxX, rx + rw),
@@ -263,10 +266,22 @@ function parseCapturedFields(
     const adapterDims = adapter?.getPageDimensions(pg);
     if (adapterDims?.width && adapterDims?.height) {
       const scale = detectUnitScaleBatch(maxX, maxY, adapterDims.width, adapterDims.height);
-      if (scale !== null) {
-        resolvedSizes.set(pg, { width: adapterDims.width / scale, height: adapterDims.height / scale });
+      console.log('[parseCapturedFields] page='+pg+' maxX='+maxX.toFixed(1)+' scale='+scale+' adapterW='+adapterDims.width);
+      if (scale === null) {
+        // Null sentinel: coords are pixels. Derive px dims from effective pts.
+        const STD_LETTER_W = 612;
+        let effW = adapterDims.width, effH = adapterDims.height;
+        if (adapterDims.width > 1000) {
+          const userUnit = Math.round(adapterDims.width / STD_LETTER_W) || 1;
+          effW = adapterDims.width / userUnit;
+          effH = adapterDims.height / userUnit;
+        }
+        const pxW = effW * (96 / 72);
+        const pxH = effH * (96 / 72);
+        console.log('[parseCapturedFields] → px dims: '+pxW.toFixed(0)+'×'+pxH.toFixed(0));
+        resolvedSizes.set(pg, { width: pxW, height: pxH });
       } else {
-        resolvedSizes.set(pg, adapterDims);
+        resolvedSizes.set(pg, { width: adapterDims.width / scale, height: adapterDims.height / scale });
       }
     } else {
       resolvedSizes.set(pg, maxX > 1 || maxY > 1 ? { width: maxX, height: maxY } : null);
@@ -274,8 +289,10 @@ function parseCapturedFields(
   }
 
   return items.map(item => {
-    const raw  = extractRawCoords(item);
-    const page = typeof item.page === 'number' ? item.page : 1;
+    const raw  = extractRawCoords(item); // sets __extractedPage for FORMAT 10
+    const ep2  = (item as any).__extractedPage;
+    const page = typeof ep2 === 'number' ? ep2 :
+                 typeof item.page === 'number' ? item.page : 1;
     let x = 0, y = 0, w = 0, h = 0;
 
     if (raw) {
@@ -364,4 +381,3 @@ export function injectCapturedFields(json: unknown, adapter: ViewerAdapter | nul
 export function injectCategories(json: unknown) {
   return parseCategories(json);
 }
-
