@@ -141,20 +141,28 @@ export function detectUnitScaleBatch(
     'pageW_pts='+pageW+'(eff='+effW.toFixed(0)+')',
     'pxW='+pxW.toFixed(0), 'pxH='+pxH.toFixed(0));
 
-  // ── Hard rule 1: maxRawX > effPageW_pts → cannot be pts → must be pixels ─
+  // ── Disambiguation: X exceeds pts page width ─────────────────────────────
+  // When maxRawX > effW, coords cannot be pts AS-IS. But there are two cases:
+  // 1. Coords are PIXELS (different DPI) — the whole coordinate space is bigger
+  // 2. Coords are PTS but ONE wide field slightly overflows the page (OCR artifact)
+  //
+  // We disambiguate using Y-axis page coverage:
+  // - If Y only covers a small fraction of the page (< 40%) but X overflows,
+  //   the content is suspiciously concentrated at the top → likely pixels
+  // - If Y covers most of the page (≥ 40%), the wide X is likely a single wide
+  //   field in a pt-space document → keep as pts
   if (maxRawX > effW) {
-    if (maxRawX <= pxW * 1.15 && maxRawY <= pxH * 1.15) {
-      console.log('[coords] → OVERRIDE px@96 (maxRawX '+maxRawX.toFixed(1)+' > effW '+effW.toFixed(0)+'): RETURNING NULL');
-      return null; // sentinel: caller must use px dims
+    const yCoverage = maxRawY / effH;
+    const xFitsInPx = maxRawX <= pxW * 1.15;
+    if (xFitsInPx && yCoverage < 0.40) {
+      // Low Y coverage + X overflow → pixels
+      console.log('[coords] → OVERRIDE px@96 (maxRawX='+maxRawX.toFixed(1)
+        +' > effW='+effW.toFixed(0)+', yCoverage='+yCoverage.toFixed(2)+'<0.40): RETURNING NULL');
+      return null;
     }
-  }
-
-  // ── Hard rule 2: coords fit within px dims much better than pts ──────────
-  const ratioPts = maxRawX / effW;
-  const ratioPx  = maxRawX / pxW;
-  if (ratioPts > 0.5 && ratioPx <= 1.0 && ratioPts / ratioPx > 1.25) {
-    console.log('[coords] → OVERRIDE px@96 (ratio evidence: pts='+ratioPts.toFixed(3)+' px='+ratioPx.toFixed(3)+')');
-    return null;
+    // High Y coverage → treat as pts despite X overflow (wide field OCR artifact)
+    console.log('[coords] → pts (maxRawX overflows but yCoverage='
+      +yCoverage.toFixed(2)+'>=0.40, treating as pts)');
   }
 
   const scale = bestFitScale(maxRawX, maxRawY, effW, effH);
@@ -342,7 +350,7 @@ export function normaliseCoords(
 
       // Use detectUnitScaleBatch (not bestFitScale) so UserUnit inflation and
       // the px@96 override are applied consistently with normaliseBatch.
-      const scale = detectUnitScaleBatch(maxCoord, maxCoord, dims.width, dims.height);
+      const scale = detectUnitScaleBatch(x + w, y + h, dims.width, dims.height);
 
       if (scale === null) {
         // null sentinel: coords are pixels — derive px dims from effective pts
