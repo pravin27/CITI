@@ -427,6 +427,7 @@ export function normaliseBatch(
     const adapterDims = adapter?.getPageDimensions(pg);
     if (adapterDims?.width && adapterDims?.height) {
       const scale = detectUnitScaleBatch(maxX, maxY, adapterDims.width, adapterDims.height);
+      console.log('[normaliseBatch] detectUnitScaleBatch returned:', scale, 'for page', pg);
 
       if (scale === null) {
         // null sentinel: coords are pixels — use 96dpi px dims for normalisation.
@@ -476,6 +477,7 @@ export function normaliseBatch(
     const res = pageResolved.get(pg);
     if (res) {
       const { width, height, scale } = res;
+      console.log('[normaliseBatch] Pass2 using: width='+width.toFixed(1)+' height='+height.toFixed(1)+' scale='+scale);
       const coords = clamp4([x*scale/width, y*scale/height, w*scale/width, h*scale/height]);
       console.log('[normaliseBatch] Pass2 page='+pg,
         'x='+x+' y='+y+' w='+w+' h='+h,
