@@ -112,33 +112,58 @@ export function detectUnitScaleBatch(
   maxRawX: number, maxRawY: number,
   pageW:   number, pageH:   number,
 ): number | null {
-  const pxW = pageW * (96 / 72);   // 612 → 816, 595 → 793
-  const pxH = pageH * (96 / 72);   // 792 → 1056, 842 → 1123
+  // ── Normalise page dims to standard pts ──────────────────────────────────
+  // pdfjs can report inflated dims when PDF has UserUnit > 1 (e.g. 2550 instead of 612).
+  // Detect this: standard Letter=612, A4=595. If pageW > 1000, it's UserUnit-scaled.
+  // Normalise back to real pts by dividing by the UserUnit factor.
+  let effW = pageW;
+  let effH = pageH;
+  const STD_LETTER_W = 612;   // Letter width in pts
+  const STD_A4_W     = 595;   // A4 width in pts
+  if (pageW > 1000) {
+    // Detect UserUnit: ratio of reported width to nearest standard width
+    const closestStd = Math.abs(pageW / STD_LETTER_W - Math.round(pageW / STD_LETTER_W)) <
+                       Math.abs(pageW / STD_A4_W    - Math.round(pageW / STD_A4_W))
+                       ? STD_LETTER_W : STD_A4_W;
+    const userUnit = Math.round(pageW / closestStd);
+    effW = pageW / userUnit;
+    effH = pageH / userUnit;
+    console.log('[coords] UserUnit detected =', userUnit,
+      '→ effW='+effW.toFixed(0)+' effH='+effH.toFixed(0));
+  }
+
+  // px dims at 96dpi from effective pts
+  const pxW = effW * (96 / 72);   // 612→816, 595→793
+  const pxH = effH * (96 / 72);   // 792→1056
 
   console.log('[coords] detectUnitScaleBatch:',
     'maxRawX='+maxRawX.toFixed(1), 'maxRawY='+maxRawY.toFixed(1),
-    'pageW_pts='+pageW, 'pageH_pts='+pageH,
-    'pageW_px='+pxW.toFixed(0), 'pageH_px='+pxH.toFixed(0));
+    'pageW_pts='+pageW+'(eff='+effW.toFixed(0)+')',
+    'pxW='+pxW.toFixed(0), 'pxH='+pxH.toFixed(0));
 
-  // Hard override: maxRawX > pageW_pts → impossible to be pts → must be pixels
-  if (maxRawX > pageW) {
+  // ── Hard rule 1: maxRawX > effPageW_pts → cannot be pts → must be pixels ─
+  if (maxRawX > effW) {
     if (maxRawX <= pxW * 1.15 && maxRawY <= pxH * 1.15) {
-      console.log('[coords] → OVERRIDE px@96 (maxRawX '+maxRawX.toFixed(1)+' > pageW_pts '+pageW+') scale=0.75');
-      return 96 / 72;  // 1.333... — wait, this is WRONG direction
-      // normaliseCoords does: x * scale / pageW_pts
-      // We want: x / pxW = x / (pageW * 96/72) = x * (72/96) / pageW = x * 0.75 / pageW
-      // So scale should be 72/96 = 0.75, NOT 96/72
-    }
-  }
-  if (maxRawY > pageH) {
-    if (maxRawY <= pxH * 1.15) {
-      console.log('[coords] → OVERRIDE px@96 via Y (maxRawY '+maxRawY.toFixed(1)+' > pageH_pts '+pageH+') scale=0.75');
-      return 72 / 96;
+      console.log('[coords] → OVERRIDE px@96 (maxRawX '+maxRawX.toFixed(1)+' > effW '+effW.toFixed(0)+'): scale='+( 72/96).toFixed(4));
+      // normaliseCoords does x*scale/pageW — but pageW here is original (effW or pageW?)
+      // normaliseBatch uses adapterDims.width (=pageW original, e.g. 2550)
+      // So we need: x_norm = x_px / pxW = x * (72/96) / effW = x * scale_px_to_pts / effW
+      // But normaliseBatch divides by adapterDims.width (2550), not effW (612).
+      // Return special sentinel: null → normaliseBatch will use pxW directly
+      return null; // handled below with pxW
     }
   }
 
-  const scale = bestFitScale(maxRawX, maxRawY, pageW, pageH);
-  console.log('[coords] → bestFitScale result:', scale);
+  // ── Hard rule 2: coords fit within px dims much better than pts ──────────
+  const ratioPts = maxRawX / effW;
+  const ratioPx  = maxRawX / pxW;
+  if (ratioPts > 0.5 && ratioPx <= 1.0 && ratioPts / ratioPx > 1.25) {
+    console.log('[coords] → OVERRIDE px@96 (ratio evidence: pts='+ratioPts.toFixed(3)+' px='+ratioPx.toFixed(3)+')');
+    return null;
+  }
+
+  const scale = bestFitScale(maxRawX, maxRawY, effW, effH);
+  console.log('[coords] → bestFitScale(effDims) result:', scale);
   return scale;
 }
 
@@ -397,12 +422,31 @@ export function normaliseBatch(
   }
 
   // Resolve per-page: use adapter dims + unit detection
-  // adapter.getPageDimensions(pg) gives real page size in native document units (pts for PDF)
   const pageResolved = new Map<number, { width: number; height: number; scale: number } | null>();
   for (const [pg, { maxX, maxY }] of pageMaxExtent) {
     const adapterDims = adapter?.getPageDimensions(pg);
     if (adapterDims?.width && adapterDims?.height) {
       const scale = detectUnitScaleBatch(maxX, maxY, adapterDims.width, adapterDims.height);
+
+      if (scale === null) {
+        // null sentinel: coords are pixels — use 96dpi px dims for normalisation.
+        // Normalise pageW from pts to effective pts (remove UserUnit if inflated).
+        const STD_LETTER_W = 612;
+        let effW = adapterDims.width, effH = adapterDims.height;
+        if (adapterDims.width > 1000) {
+          const userUnit = Math.round(adapterDims.width / STD_LETTER_W) || 1;
+          effW = adapterDims.width / userUnit;
+          effH = adapterDims.height / userUnit;
+        }
+        // px dims at 96dpi
+        const pxW = effW * (96 / 72);
+        const pxH = effH * (96 / 72);
+        console.log('[normaliseBatch] page='+pg+' using px dims: '+pxW.toFixed(0)+'×'+pxH.toFixed(0));
+        // scale=1 with px dims: x_norm = x*1/pxW = x/pxW ✓
+        pageResolved.set(pg, { width: pxW, height: pxH, scale: 1 });
+        continue;
+      }
+
       if (scale !== null) {
         pageResolved.set(pg, { width: adapterDims.width, height: adapterDims.height, scale });
         continue;
