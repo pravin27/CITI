@@ -144,13 +144,8 @@ export function detectUnitScaleBatch(
   // ── Hard rule 1: maxRawX > effPageW_pts → cannot be pts → must be pixels ─
   if (maxRawX > effW) {
     if (maxRawX <= pxW * 1.15 && maxRawY <= pxH * 1.15) {
-      console.log('[coords] → OVERRIDE px@96 (maxRawX '+maxRawX.toFixed(1)+' > effW '+effW.toFixed(0)+'): scale='+( 72/96).toFixed(4));
-      // normaliseCoords does x*scale/pageW — but pageW here is original (effW or pageW?)
-      // normaliseBatch uses adapterDims.width (=pageW original, e.g. 2550)
-      // So we need: x_norm = x_px / pxW = x * (72/96) / effW = x * scale_px_to_pts / effW
-      // But normaliseBatch divides by adapterDims.width (2550), not effW (612).
-      // Return special sentinel: null → normaliseBatch will use pxW directly
-      return null; // handled below with pxW
+      console.log('[coords] → OVERRIDE px@96 (maxRawX '+maxRawX.toFixed(1)+' > effW '+effW.toFixed(0)+'): RETURNING NULL');
+      return null; // sentinel: caller must use px dims
     }
   }
 
