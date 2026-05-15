@@ -121,15 +121,15 @@ export function detectUnitScaleBatch(
   const STD_LETTER_W = 612;   // Letter width in pts
   const STD_A4_W     = 595;   // A4 width in pts
   if (pageW > 1000) {
-    // Detect UserUnit: ratio of reported width to nearest standard width
+    // Use exact ratio — no rounding. e.g. 2550/612=4.1667 → effW=612 exactly → pxW=816
     const closestStd = Math.abs(pageW / STD_LETTER_W - Math.round(pageW / STD_LETTER_W)) <
                        Math.abs(pageW / STD_A4_W    - Math.round(pageW / STD_A4_W))
                        ? STD_LETTER_W : STD_A4_W;
-    const userUnit = Math.round(pageW / closestStd);
-    effW = pageW / userUnit;
-    effH = pageH / userUnit;
-    console.log('[coords] UserUnit detected =', userUnit,
-      '→ effW='+effW.toFixed(0)+' effH='+effH.toFixed(0));
+    const exactRatio = pageW / closestStd;   // e.g. 4.1667 — NOT rounded
+    effW = closestStd;                        // = 612 pts exactly
+    effH = pageH / exactRatio;               // = 792 pts exactly
+    console.log('[coords] UserUnit detected =', exactRatio.toFixed(4),
+      '→ effW='+effW.toFixed(1)+' effH='+effH.toFixed(1));
   }
 
   // px dims at 96dpi from effective pts
@@ -347,11 +347,15 @@ export function normaliseCoords(
       if (scale === null) {
         // null sentinel: coords are pixels — derive px dims from effective pts
         const STD_LETTER_W = 612;
+        const STD_A4_W = 595;
         let effW = dims.width, effH = dims.height;
         if (dims.width > 1000) {
-          const userUnit = Math.round(dims.width / STD_LETTER_W) || 1;
-          effW = dims.width  / userUnit;
-          effH = dims.height / userUnit;
+          const closestStd = Math.abs(dims.width/STD_LETTER_W - Math.round(dims.width/STD_LETTER_W)) <
+                             Math.abs(dims.width/STD_A4_W    - Math.round(dims.width/STD_A4_W))
+                             ? STD_LETTER_W : STD_A4_W;
+          const exactRatio = dims.width / closestStd;
+          effW = closestStd;
+          effH = dims.height / exactRatio;
         }
         const pxW = effW * (96 / 72);
         const pxH = effH * (96 / 72);
@@ -441,17 +445,19 @@ export function normaliseBatch(
         // null sentinel: coords are pixels — use 96dpi px dims for normalisation.
         // Normalise pageW from pts to effective pts (remove UserUnit if inflated).
         const STD_LETTER_W = 612;
+        const STD_A4_W_b = 595;
         let effW = adapterDims.width, effH = adapterDims.height;
         if (adapterDims.width > 1000) {
-          const userUnit = Math.round(adapterDims.width / STD_LETTER_W) || 1;
-          effW = adapterDims.width / userUnit;
-          effH = adapterDims.height / userUnit;
+          const closestStd = Math.abs(adapterDims.width/STD_LETTER_W - Math.round(adapterDims.width/STD_LETTER_W)) <
+                             Math.abs(adapterDims.width/STD_A4_W_b  - Math.round(adapterDims.width/STD_A4_W_b))
+                             ? STD_LETTER_W : STD_A4_W_b;
+          const exactRatio = adapterDims.width / closestStd;
+          effW = closestStd;
+          effH = adapterDims.height / exactRatio;
         }
-        // px dims at 96dpi
         const pxW = effW * (96 / 72);
         const pxH = effH * (96 / 72);
         console.log('[normaliseBatch] page='+pg+' using px dims: '+pxW.toFixed(0)+'×'+pxH.toFixed(0));
-        // scale=1 with px dims: x_norm = x*1/pxW = x/pxW ✓
         pageResolved.set(pg, { width: pxW, height: pxH, scale: 1 });
         continue;
       }
