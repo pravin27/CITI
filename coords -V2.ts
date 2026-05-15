@@ -141,28 +141,14 @@ export function detectUnitScaleBatch(
     'pageW_pts='+pageW+'(eff='+effW.toFixed(0)+')',
     'pxW='+pxW.toFixed(0), 'pxH='+pxH.toFixed(0));
 
-  // ── Disambiguation: X exceeds pts page width ─────────────────────────────
-  // When maxRawX > effW, coords cannot be pts AS-IS. But there are two cases:
-  // 1. Coords are PIXELS (different DPI) — the whole coordinate space is bigger
-  // 2. Coords are PTS but ONE wide field slightly overflows the page (OCR artifact)
-  //
-  // We disambiguate using Y-axis page coverage:
-  // - If Y only covers a small fraction of the page (< 40%) but X overflows,
-  //   the content is suspiciously concentrated at the top → likely pixels
-  // - If Y covers most of the page (≥ 40%), the wide X is likely a single wide
-  //   field in a pt-space document → keep as pts
-  if (maxRawX > effW) {
-    const yCoverage = maxRawY / effH;
-    const xFitsInPx = maxRawX <= pxW * 1.15;
-    if (xFitsInPx && yCoverage < 0.40) {
-      // Low Y coverage + X overflow → pixels
-      console.log('[coords] → OVERRIDE px@96 (maxRawX='+maxRawX.toFixed(1)
-        +' > effW='+effW.toFixed(0)+', yCoverage='+yCoverage.toFixed(2)+'<0.40): RETURNING NULL');
-      return null;
-    }
-    // High Y coverage → treat as pts despite X overflow (wide field OCR artifact)
-    console.log('[coords] → pts (maxRawX overflows but yCoverage='
-      +yCoverage.toFixed(2)+'>=0.40, treating as pts)');
+  // ── Rule: maxRawX exceeds pts page width → coords must be pixels ────────
+  // If any coordinate exceeds the pts page boundary, the coordinate space
+  // is larger than the pts page — must be pixels at a higher DPI.
+  // We check it fits within px@96dpi dims (with 15% tolerance).
+  if (maxRawX > effW && maxRawX <= pxW * 1.15) {
+    console.log('[coords] → OVERRIDE px@96 (maxRawX='+maxRawX.toFixed(1)
+      +' > effW='+effW.toFixed(0)+'): RETURNING NULL');
+    return null;
   }
 
   const scale = bestFitScale(maxRawX, maxRawY, effW, effH);
