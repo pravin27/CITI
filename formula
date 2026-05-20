@@ -1,0 +1,13 @@
+```ts
+// File: src/utils/coords.ts  → normaliseBatch Pass 2
+
+const { width, height, scale } = pageResolved.get(page);
+// width=816, height=1056, scale=1
+
+const coords = [
+  x * scale / width,    //  125 * 1 / 816  = 0.153
+  y * scale / height,   //  157 * 1 / 1056 = 0.149
+  w * scale / width,    //  138 * 1 / 816  = 0.169
+  h * scale / height,   //   12 * 1 / 1056 = 0.011
+];
+```
