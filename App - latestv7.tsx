@@ -897,35 +897,28 @@ export default function App() {
   });
   React.useEffect(() => {
     if (!isEmbedded) return;
-    const unsub = useAppStore.subscribe(
-      (s): { page: number; name: string; pageCount: number } => ({
-        page: s.currentPage, name: s.fileName, pageCount: s.pageCount,
-      }),
-      ({ page, name, pageCount }: { page: number; name: string; pageCount: number }) => {
-        if (!name) return;
-        const mds     = multiDoc.state;
-        const docId   = mds?.activeDocId ?? null;
-        const prev    = prevStateRef.current;
-        // Skip if nothing changed
-        if (page === prev.page && docId === prev.docId) return;
-        prevStateRef.current = { page, docId };
-
-        const doc   = mds?.documents?.find((d: any) => d.id === docId);
-        window.parent.postMessage({
-          type:      'VIEWER_STATE_CHANGED',
-          // ── Current page ────────────────────────────────
-          page,                              // current page number (1-based)
-          pageCount,                         // total pages in current document
-          // ── Current file ────────────────────────────────
-          fileName:  name,                   // file name of current document
-          // ── MultiDoc extras (undefined for SingleDoc) ───
-          docId:     docId    ?? undefined,  // active document id
-          docLabel:  (doc as any)?.label ?? (doc as any)?.name ?? docId ?? undefined,
-          mode:      mds?.mode ?? undefined, // 'MultiDoc:SinglePage' | 'MultiDoc:MultiPage'
-          totalDocs: mds?.documents?.length ?? undefined,
-        }, '*');
-      }
-    );
+    const unsub = useAppStore.subscribe((s) => {
+      const page      = s.currentPage;
+      const name      = s.fileName;
+      const pageCount = s.pageCount;
+      if (!name) return;
+      const mds   = multiDoc.state;
+      const docId = mds?.activeDocId ?? null;
+      const prev  = prevStateRef.current;
+      if (page === prev.page && docId === prev.docId) return;
+      prevStateRef.current = { page, docId };
+      const doc = mds?.documents?.find((d: any) => d.id === docId);
+      window.parent.postMessage({
+        type:      'VIEWER_STATE_CHANGED',
+        page,
+        pageCount,
+        fileName:  name,
+        docId:     docId    ?? undefined,
+        docLabel:  (doc as any)?.label ?? (doc as any)?.name ?? docId ?? undefined,
+        mode:      mds?.mode ?? undefined,
+        totalDocs: mds?.documents?.length ?? undefined,
+      }, '*');
+    });
     return unsub;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbedded, multiDoc.state]);
