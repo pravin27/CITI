@@ -212,3 +212,31 @@ Step 6  Canvas renders box:
 | 200% | 1632     | 2112     | 653px  | 1056px | 326px  | 127px  |
 
 The 0-1 fractions × canvas size — proportional position is preserved exactly.
+
+
+
+-----------------Fraction ---------
+What Gemini's OCR returns
+Gemini returns bounding box coordinates in this format:
+[y_min, x_min, y_max, x_max]  →  e.g. [234, 123, 45, 13]
+These values are in a fixed scale of 0–1000 (not pixels, not 0–1).
+
+Why divide by 1000 specifically?
+Gemini normalizes all coordinates to a 1000×1000 grid regardless of the actual image size. So:
+234 / 1000 = 0.234  →  means 23.4% from the top
+123 / 1000 = 0.123  →  means 12.3% from the left
+This is just Gemini's internal convention — they chose 1000 as the scale so coordinates are integers (easier to handle) while still being resolution-independent. It's essentially a fixed-point representation of a 0.0–1.0 ratio.
+
+What is the main purpose of normalizing?
+Normalization makes coordinates resolution-independent. Here's why that matters:
+ProblemWithout normalizationWith normalizationImage is 800×600 but viewport is 1440×900Coordinates are wrongMultiply by viewport size → correctPDF rendered at 150 DPI vs 300 DPIPixel positions differSame normalized value works for bothDisplay on mobile vs desktopBreaksScale to any screen size
+So the full pipeline is:
+Gemini raw:   [234, 123, 45, 13]   ← 0–1000 scale
+÷ 1000:       [0.234, 0.123, 0.045, 0.013]   ← normalized 0.0–1.0
+× viewport:   0.234 × 900 = 210.6px (y),  0.123 × 1440 = 177.1px (x)
+
+Contrast with what we did in your PDFs
+In your earlier extractions we divided by page pixel dimensions directly (e.g. 1900px wide), which achieves the same goal — just a different path to 0.0–1.0:
+Tesseract/PyMuPDF:   x=437px  ÷  page_width=1900px  =  0.23
+Gemini:              x=230    ÷  1000                =  0.23
+Both land at the same normalized value. The normalization approach differs, but the purpose is identical: make coordinates portable across any resolution or viewport.
