@@ -1,0 +1,307 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// ImageAdapter — lazy-decode TIF/TIFF, native decode for BMP/JPEG/PNG
+//
+// PERFORMANCE — heavy TIF files (30-45 MB, 1000-2000 pages)
+//
+//   OLD: decode ALL pages on load → 20-60s main-thread block, 14+ GB RAM
+//
+//   NEW architecture:
+//   ┌─ loadFile() ──────────────────────────────────────────────────────────┐
+//   │  1. file.arrayBuffer()          — IO only, unavoidable               │
+//   │  2. UTIF.decode(buffer)         — parse IFD metadata only (~10ms)    │
+//   │     Stores: _ifds[], _buffer, page dimensions from IFD tags          │
+//   │  3. Ready immediately — pageCount set, callbacks fired               │
+//   └───────────────────────────────────────────────────────────────────────┘
+//   ┌─ getFrame(page) — called by ImageViewer when page enters viewport ───┐
+//   │  4. Check LRU cache (_frameCache) — if hit, return immediately       │
+//   │  5. UTIF.decodeImage(buffer, ifd) — decode one page (~15ms)         │
+//   │  6. UTIF.toRGBA8(ifd)            — convert to RGBA (~3ms)           │
+//   │  7. createImageBitmap(ImageData) — GPU-accelerated, off main thread  │
+//   │  8. Cache in LRU (max FRAME_CACHE_SIZE pages), evict oldest          │
+//   └───────────────────────────────────────────────────────────────────────┘
+//
+//   Result: file opens in <1s. Each page renders in ~20ms on first visit,
+//   instantly on revisit (LRU cache hit). Peak RAM = FRAME_CACHE_SIZE pages.
+//   At 1700×2200 RGBA, 50-page cache ≈ 750MB — reasonable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { ViewerAdapter } from './types';
+
+// Max decoded pages held in memory at once.
+// Evicts least-recently-used when exceeded.
+// Raise if users frequently jump between distant pages.
+// Number of decoded image frames to keep in GPU-resident ImageBitmap cache.
+// Each slot holds one page as an ImageBitmap (GPU texture).
+// TIFF pages at 300dpi ≈ 25MB raw → RGBA bitmap ≈ 15–25MB GPU memory.
+// ─── CHANGE THIS to tune memory vs re-render tradeoff ───────────────────────
+//   100 = default (recommended for heavy TIFF/image documents)
+//    50 = low-memory mode
+//   200 = maximum — almost no re-renders on back-navigation
+// ─────────────────────────────────────────────────────────────────────────────
+const FRAME_CACHE_SIZE = 100;
+
+export interface ImageFrame {
+  bitmap: ImageBitmap;   // GPU-resident, can be drawn to canvas instantly
+  width:  number;
+  height: number;
+}
+
+// Lightweight metadata — available immediately after loadFile()
+interface PageMeta {
+  width:  number;
+  height: number;
+}
+
+export class ImageAdapter implements ViewerAdapter {
+  pageCount = 0;
+
+  // Raw buffer + parsed IFDs — kept for lazy decode
+  private _buffer:  ArrayBuffer | null = null;
+  private _ifds:    unknown[]   = [];
+
+  // Page metadata (w/h only) — parsed upfront from IFD tags, no pixel decode
+  private _pageMeta: PageMeta[] = [];
+
+  // LRU decoded frame cache — key: 1-based page number
+  private _frameCache  = new Map<number, ImageFrame>();
+  // LRU order — front = oldest, back = newest
+  private _lruOrder: number[] = [];
+  // In-flight decode promises — prevents double-decoding the same page
+  private _decoding  = new Map<number, Promise<ImageFrame>>();
+
+  private _readyCallbacks:        Array<() => void>         = [];
+  private _pageRenderedCallbacks: Array<(page: number) => void> = [];
+  private _pageElements = new Map<number, HTMLElement>();
+  private _renderedPages = new Set<number>();
+  private _isReady = false;
+
+  // ── File loading — FAST, no pixel decode ─────────────────────────────────
+
+  async loadFile(file: File): Promise<void> {
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (ext === 'tif' || ext === 'tiff') {
+      await this._loadTiffMeta(file);
+    } else {
+      await this._loadNativeImage(file);
+    }
+    this._isReady  = true;
+    this.pageCount = this._pageMeta.length;
+    this._readyCallbacks.forEach(cb => cb());
+    this._readyCallbacks = [];
+  }
+
+  // Parse IFD metadata only — no UTIF.decodeImage() called here
+  private async _loadTiffMeta(file: File): Promise<void> {
+    const UTIF = ((await import('utif' as any)) as any).default ?? (await import('utif' as any));
+    this._buffer = await file.arrayBuffer();
+    this._ifds   = UTIF.decode(this._buffer) as unknown[];
+    this._pageMeta = this._ifds.map((ifd: any) => ({
+      width:  (ifd.width  ?? ifd.t256?.[0] ?? ifd['256']?.[0] ?? 0) as number,
+      height: (ifd.height ?? ifd.t257?.[0] ?? ifd['257']?.[0] ?? 0) as number,
+    }));
+  }
+
+  // Non-TIF: decode once, store as ImageBitmap — native browser path
+  private async _loadNativeImage(file: File): Promise<void> {
+    const url    = URL.createObjectURL(file);
+    const bitmap = await createImageBitmap(await (await fetch(url)).blob());
+    URL.revokeObjectURL(url);
+    const frame: ImageFrame = { bitmap, width: bitmap.width, height: bitmap.height };
+    this._frameCache.set(1, frame);
+    this._lruOrder = [1];
+    this._pageMeta = [{ width: bitmap.width, height: bitmap.height }];
+  }
+
+  // ── Lazy page decode — called by ImageViewer when page enters viewport ────
+
+  // Returns a cached frame immediately, or kicks off an async decode.
+  // Returns null if not yet decoded (caller shows placeholder).
+  getFrame(page: number): ImageFrame | null {
+    const cached = this._frameCache.get(page);
+    if (cached) {
+      this._touchLRU(page);
+      return cached;
+    }
+    // Kick off background decode — caller will re-render when promise resolves
+    this._decodePageAsync(page).catch(() => {});
+    return null;
+  }
+
+  // Returns promise — resolves when the frame is ready
+  async getFrameAsync(page: number): Promise<ImageFrame | null> {
+    const cached = this._frameCache.get(page);
+    if (cached) { this._touchLRU(page); return cached; }
+    return this._decodePageAsync(page);
+  }
+
+  private async _decodePageAsync(page: number): Promise<ImageFrame> {
+    // Coalesce concurrent requests for the same page
+    const inflight = this._decoding.get(page);
+    if (inflight) return inflight;
+
+    const promise = (async () => {
+      const UTIF = ((await import('utif' as any)) as any).default ?? (await import('utif' as any));
+      const ifd  = this._ifds[page - 1] as any;
+      if (!ifd || !this._buffer) throw new Error(`No IFD for page ${page}`);
+
+      // Decode pixel data in-place (mutates ifd.data)
+      // Yield to browser before heavy UTIF decode to avoid blocking scroll/UI.
+      // UTIF.decodeImage + toRGBA8 are synchronous CPU operations (~50-200ms
+      // per page at 300dpi). The scheduler.yield() API (Chrome 115+) or
+      // a setTimeout(0) fallback gives the browser a chance to handle user input.
+      await new Promise<void>(r => {
+        if (typeof (scheduler as any)?.yield === 'function') {
+          (scheduler as any).yield().then(r);
+        } else {
+          setTimeout(r, 0);
+        }
+      });
+
+      if (!this._buffer) return { bitmap: null as any, width: 0, height: 0 }; // disposed
+
+      UTIF.decodeImage(this._buffer, ifd);
+      const rgba   = UTIF.toRGBA8(ifd) as Uint8Array;
+      const width  = this._pageMeta[page - 1].width;
+      const height = this._pageMeta[page - 1].height;
+
+      const imgData = new ImageData(new Uint8ClampedArray(rgba), width, height);
+      // imageOrientation and premultiplyAlpha hints let the browser
+      // skip unnecessary transforms — faster decode on large images
+      const bitmap  = await createImageBitmap(imgData, {
+        imageOrientation: 'none',
+        premultiplyAlpha: 'premultiply',
+        colorSpaceConversion: 'none',   // skip color conversion — we display as-is
+      });
+
+      // Free the raw pixel buffer on the IFD — we have the bitmap now
+      // This drops ifd.data (can be large: 1700×2200×4 = ~15MB per page)
+      try { (ifd as any).data = null; } catch (_) {}
+
+      const frame: ImageFrame = { bitmap, width, height };
+      this._evictIfNeeded();
+      this._frameCache.set(page, frame);
+      this._touchLRU(page);
+      this._decoding.delete(page);
+
+      // Notify ImageViewer that this page is ready to paint
+      this._pageRenderedCallbacks.forEach(cb => cb(page));
+      return frame;
+    })();
+
+    this._decoding.set(page, promise);
+    return promise;
+  }
+
+  // ── LRU eviction ──────────────────────────────────────────────────────────
+
+  private _touchLRU(page: number) {
+    const idx = this._lruOrder.indexOf(page);
+    if (idx !== -1) this._lruOrder.splice(idx, 1);
+    this._lruOrder.push(page); // most recently used = back
+  }
+
+  private _evictIfNeeded() {
+    while (this._frameCache.size >= FRAME_CACHE_SIZE) {
+      const oldest = this._lruOrder.shift();
+      if (oldest === undefined) break;
+      const frame = this._frameCache.get(oldest);
+      if (frame) { frame.bitmap.close(); } // free GPU memory
+      this._frameCache.delete(oldest);
+    }
+  }
+
+  // ── ViewerAdapter ─────────────────────────────────────────────────────────
+
+  navigateToPage(page: number): void {
+    const el = this._pageElements.get(page);
+    if (!el) return;
+    const scrollContainer = el.closest('[data-viewer-scroll]') as HTMLElement | null;
+    if (scrollContainer) {
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const elRect        = el.getBoundingClientRect();
+      scrollContainer.scrollTop = elRect.top - containerRect.top + scrollContainer.scrollTop - 8;
+    } else {
+      el.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'start' });
+    }
+  }
+
+  notifyPageRendered(page: number) {
+    this._renderedPages.add(page);
+    this._pageRenderedCallbacks.forEach(cb => cb(page));
+    // Pre-fetch adjacent pages in background — zero cost if already cached.
+    // Prioritise: next (+1), then prev (-1), then +2 for forward reading.
+    const prefetchOrder = [page + 1, page - 1, page + 2];
+    for (const p of prefetchOrder) {
+      if (p < 1 || p > this.pageCount) continue;
+      if (this._frameCache.has(p)) continue;
+      const fetch = () => this.getFrameAsync(p).catch(() => {});
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(fetch, { timeout: 2000 });
+      } else {
+        setTimeout(fetch, 150 + prefetchOrder.indexOf(p) * 150);
+      }
+    }
+  }
+
+  registerPageElement(page: number, el: HTMLElement | null) {
+    if (el) this._pageElements.set(page, el);
+    else    this._pageElements.delete(page);
+  }
+
+  // Returns metadata (w/h) without decoding — used for placeholder sizing
+  getPageDimensions(page: number): { width: number; height: number } | null {
+    return this._pageMeta[page - 1] ?? null;
+  }
+
+  getPageCanvas(page: number): HTMLCanvasElement | null {
+    const el = this._pageElements.get(page);
+    return el?.querySelector('canvas') ?? null;
+  }
+
+  getPageElement(page: number): HTMLElement | null {
+    return this._pageElements.get(page) ?? null;
+  }
+
+  getRenderedPages(): Set<number> { return new Set(this._renderedPages); }
+
+  // getAllFrames() removed — use getFrame(page) / getFrameAsync(page) per-page.
+  // ImageViewer no longer calls getAllFrames().
+
+  onReady(cb: () => void) {
+    if (this._isReady) cb();
+    else this._readyCallbacks.push(cb);
+  }
+
+  onPageRendered(cb: (page: number) => void)  { this._pageRenderedCallbacks.push(cb); }
+  offPageRendered(cb: (page: number) => void) {
+    const idx = this._pageRenderedCallbacks.indexOf(cb);
+    if (idx !== -1) this._pageRenderedCallbacks.splice(idx, 1);
+  }
+
+  dispose() {
+    // Mark disposed FIRST so any in-flight getFrameAsync calls see it immediately
+    this._buffer = null;
+
+    // Delay bitmap.close() by 500ms so any in-flight drawImage calls that
+    // already have a frame reference can complete without crashing.
+    // The bitmaps are not reachable from the frame cache after clear() so
+    // memory pressure is relieved immediately; GPU release is deferred briefly.
+    const bitmapsToClose: ImageBitmap[] = [];
+    this._frameCache.forEach(f => { if (f.bitmap) bitmapsToClose.push(f.bitmap); });
+    this._frameCache.clear();
+    setTimeout(() => {
+      bitmapsToClose.forEach(bm => { try { bm.close(); } catch (_) {} });
+    }, 500);
+
+    this._lruOrder    = [];
+    this._decoding.clear();
+    this._ifds        = [];
+    this._pageMeta    = [];
+    this._readyCallbacks = [];
+    this._pageRenderedCallbacks = [];
+    this._pageElements.clear();
+    this._renderedPages.clear();
+    this._isReady  = false;
+    this.pageCount = 0;
+  }
+}
