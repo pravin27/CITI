@@ -361,6 +361,22 @@ function paintPage(ctx: Ctx2D, W: number, H: number, page: number,
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export // Module-level stable navigation function.
+// Written by PDFViewer when pdfViewer is ready, read by navigatePage() below.
+// Survives adapter instance changes and component re-renders without remounting.
+let _pdfNavigateFn: ((page: number) => void) | null = null;
+
+/** Call this from anywhere to navigate the PDF viewer to a page. */
+export function navigatePdfPage(page: number) {
+  if (_pdfNavigateFn) {
+    _pdfNavigateFn(page);
+  } else {
+    console.log('[NAV] navigatePdfPage: no viewer ready yet, storing as pending');
+    _pdfPendingPage = page;
+  }
+}
+let _pdfPendingPage = 1;
+
 export function PDFViewer({
   file, adapter, zoom,
 }: { file: File; adapter: PDFAdapter; zoom: number }) {
@@ -628,6 +644,7 @@ export function PDFViewer({
     const container = containerRef.current;
     const viewerDiv = viewerDivRef.current;
     if (!container || !viewerDiv) return;
+    console.log('[NAV] PDFViewer useEffect MOUNT — setting up viewer');
     didInit.current = true;
 
     const eventBus = new EventBus();
@@ -674,6 +691,25 @@ export function PDFViewer({
     viewerRef.current = pdfViewer;
     linkService.setViewer(pdfViewer);
 
+    // ── Wire navigateToPage IMMEDIATELY — before any async getDocument() call ─
+    // CRITICAL: must be synchronous. On heavy docs, thumbnail/toolbar clicks
+    // fire while getDocument() is still pending. If set inside .then(), those
+    // early clicks hit the no-op PDFAdapter stub and are silently dropped.
+    // Write to module-level fn — survives adapter instance swaps
+    _pdfNavigateFn = (page: number) => {
+      const pageNum = Math.round(Number(page));
+      if (!Number.isFinite(pageNum) || pageNum < 1) return;
+      _pdfPendingPage = pageNum;
+      (window as any).__doccapture_pauseThumbRender?.();
+      const v = viewerRef.current;
+      if (!v || !v.pagesCount) return;  // pagesloaded will pick up _pdfPendingPage
+      const clamped = Math.max(1, Math.min(pageNum, v.pagesCount));
+      v.currentPageNumber = clamped;
+      setCurrentPage(clamped);
+    };
+    // Also patch adapter so existing callers work
+    adapter.navigateToPage = _pdfNavigateFn;
+
     // pagechanging fires during setDocument init and during user navigation.
     // We suppress spinner during initial load (before pagesloaded fires) using
     // a flag — only user-initiated navigation after load should trigger spinner.
@@ -692,6 +728,8 @@ export function PDFViewer({
         }
       } catch (_) {}
       // Always update the page counter
+      console.log('[NAV] pagechanging fired → newPage:', newPage,
+        '| docFullyLoaded:', docFullyLoaded);
       setCurrentPage(newPage);
       // Re-apply fit/width scale per page so pages with different dimensions
       // (landscape vs portrait, mixed sizes) each scale correctly.
@@ -842,20 +880,7 @@ export function PDFViewer({
         // pendingNavPage: if navigateToPage is called before pdfjs is ready
         // (pagesCount=0 or pagesloaded not fired yet), store the page here
         // so onPagesLoaded can honour it after layout is complete.
-        let pendingNavPage = 1;
-
-        adapter.navigateToPage = (page: number) => {
-          const pageNum = Math.round(Number(page));
-          if (!Number.isFinite(pageNum) || pageNum < 1) return;
-          pendingNavPage = pageNum;
-          const v = viewerRef.current;
-          // If pdfjs not ready yet (heavy doc still loading),
-          // pendingNavPage is recorded and honoured in step 6 of onPagesLoaded.
-          if (!v || !v.pagesCount) return;
-          const clamped = Math.max(1, Math.min(pageNum, v.pagesCount));
-          v.currentPageNumber = clamped;
-          setCurrentPage(clamped);
-        };
+        // navigateToPage override set earlier (before getDocument) — see above
 
         // pagesloaded is the ONLY reliable place to set scale and navigate.
         // It fires after pdfjs has fully laid out all page placeholders with
@@ -884,17 +909,16 @@ export function PDFViewer({
 
           // 5. Mark load complete — pagechanging can now trigger spinners
           docFullyLoaded = true;
+          console.log('[NAV] pagesloaded complete — docFullyLoaded=true, _pdfPendingPage:', _pdfPendingPage);
 
-          // 6. If user clicked a page BEFORE pdfjs was ready (heavy doc),
-          //    honour that navigation now that pdfjs is fully laid out.
-          if (pendingNavPage > 1) {
-            requestAnimationFrame(() => {
-              const v = viewerRef.current;
-              if (!v || !v.pagesCount) return;
-              const clamped = Math.max(1, Math.min(pendingNavPage, v.pagesCount));
+          // 6. If user clicked a page BEFORE pdfjs was ready, honour it now.
+          if (_pdfPendingPage > 1) {
+            const v = viewerRef.current;
+            if (v && v.pagesCount) {
+              const clamped = Math.max(1, Math.min(_pdfPendingPage, v.pagesCount));
               v.currentPageNumber = clamped;
               setCurrentPage(clamped);
-            });
+            }
           }
 
           // 6. Notify parent once page 1 is rendered (canvas painted — user can see it).
@@ -916,6 +940,7 @@ export function PDFViewer({
 
         pdfViewer.setDocument(doc);
         linkService.setDocument(doc);
+        console.log('[NAV] pdfViewer.setDocument called — pagesCount will be 0 until pagesloaded');
 
         // Expose pdfjs doc globally for getTextContent fallback in box capture
         (window as any).__tovPdfDoc = doc;
@@ -989,8 +1014,10 @@ export function PDFViewer({
     }); // end workerReadyPromise.then
 
     return () => {
+      console.log('[NAV] PDFViewer useEffect CLEANUP/UNMOUNT — viewerRef nulled');
+      _pdfNavigateFn = null;  // clear so navigatePdfPage queues via _pdfPendingPage
       (window as any).__tovPdfDoc   = null;
-      (window as any).__tovThumbDoc = null;  // thumbnail renderer uses this — clear on unload
+      (window as any).__tovThumbDoc = null;
       (window as any).__tovPdfViewer = null;
 
       loadCancelled = true;
