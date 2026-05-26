@@ -844,26 +844,17 @@ export function PDFViewer({
         // so onPagesLoaded can honour it after layout is complete.
         let pendingNavPage = 1;
 
-        let navSeq = 0;  // sequence counter — cancels stale rAF callbacks
         adapter.navigateToPage = (page: number) => {
           const pageNum = Math.round(Number(page));
           if (!Number.isFinite(pageNum) || pageNum < 1) return;
           pendingNavPage = pageNum;
-          const mySeq = ++navSeq;  // capture current sequence
-          const doNav = () => {
-            if (mySeq !== navSeq) return;  // a newer navigation was requested — skip
-            const v = viewerRef.current;
-            if (!v || !v.pagesCount) return;  // not ready — onPagesLoaded will fire
-            const clamped = Math.max(1, Math.min(pageNum, v.pagesCount));
-            if (v.currentPageNumber === clamped) return;
-            v.currentPageNumber = clamped;
-            setCurrentPage(clamped);
-          };
-          if (typeof requestAnimationFrame !== 'undefined') {
-            requestAnimationFrame(doNav);
-          } else {
-            doNav();
-          }
+          const v = viewerRef.current;
+          // If pdfjs not ready yet (heavy doc still loading),
+          // pendingNavPage is recorded and honoured in step 6 of onPagesLoaded.
+          if (!v || !v.pagesCount) return;
+          const clamped = Math.max(1, Math.min(pageNum, v.pagesCount));
+          v.currentPageNumber = clamped;
+          setCurrentPage(clamped);
         };
 
         // pagesloaded is the ONLY reliable place to set scale and navigate.
