@@ -844,11 +844,14 @@ export function PDFViewer({
         // so onPagesLoaded can honour it after layout is complete.
         let pendingNavPage = 1;
 
+        let navSeq = 0;  // sequence counter — cancels stale rAF callbacks
         adapter.navigateToPage = (page: number) => {
           const pageNum = Math.round(Number(page));
           if (!Number.isFinite(pageNum) || pageNum < 1) return;
-          pendingNavPage = pageNum;   // always record — onPagesLoaded picks it up
+          pendingNavPage = pageNum;
+          const mySeq = ++navSeq;  // capture current sequence
           const doNav = () => {
+            if (mySeq !== navSeq) return;  // a newer navigation was requested — skip
             const v = viewerRef.current;
             if (!v || !v.pagesCount) return;  // not ready — onPagesLoaded will fire
             const clamped = Math.max(1, Math.min(pageNum, v.pagesCount));
@@ -869,13 +872,9 @@ export function PDFViewer({
         const onPagesLoaded = () => {
           eventBus.off('pagesloaded', onPagesLoaded);
 
-          // Honour any navigation request that arrived before pdfjs was ready.
-          // For heavy docs, thumbnail/toolbar clicks fire before pagesloaded.
-          // pendingNavPage defaults to 1; set to requested page if user clicked first.
-          const targetPage = Math.max(1, Math.min(pendingNavPage, pdfViewer.pagesCount));
-
-          // 1. Set store page to target BEFORE applying scale
-          setCurrentPage(targetPage);
+          // 1. Reset store page to 1 BEFORE applying scale so no spurious
+          //    pagechanging events fire for in-between pages
+          setCurrentPage(1);
 
           // 2. Apply scale now — container is fully laid out, dimensions are stable
           const zm2 = useAppStore.getState().zoomMode;
@@ -884,23 +883,35 @@ export function PDFViewer({
           else if (zm2 === 'actual')     pdfViewer.currentScaleValue = 'page-actual';
           else                           pdfViewer.currentScaleValue = String(zoomRef.current);
 
-          // 3. Scroll to target page — clears any cached scroll position
-          pdfViewer.currentPageNumber = targetPage;
+          // 3. Always start at page 1 for correct layout
+          pdfViewer.currentPageNumber = 1;
 
-          // 4. Spinner: only show if target page hasn't rendered yet
-          if (!renderedPages.has(targetPage)) {
+          // 4. Spinner: only show if page 1 hasn't rendered yet
+          if (!renderedPages.has(1)) {
             useAppStore.getState().setRenderProgress(1);
           }
 
           // 5. Mark load complete — pagechanging can now trigger spinners
           docFullyLoaded = true;
 
+          // 6. If user clicked a page BEFORE pdfjs was ready (heavy doc),
+          //    honour that navigation now that pdfjs is fully laid out.
+          if (pendingNavPage > 1) {
+            requestAnimationFrame(() => {
+              const v = viewerRef.current;
+              if (!v || !v.pagesCount) return;
+              const clamped = Math.max(1, Math.min(pendingNavPage, v.pagesCount));
+              v.currentPageNumber = clamped;
+              setCurrentPage(clamped);
+            });
+          }
+
           // 6. Notify parent once page 1 is rendered (canvas painted — user can see it).
           // We listen for `pagerendered` rather than firing here at `pagesloaded`,
           // because pagesloaded fires as soon as pdfjs parses the structure — before
           // any canvas is actually drawn. DOC_LOADED should mean "user can see content".
           const onFirstPageRendered = (evt: { pageNumber: number }) => {
-            if (evt.pageNumber !== targetPage) return;
+            if (evt.pageNumber !== 1) return;
             eventBus.off('pagerendered', onFirstPageRendered);
             const bridgeEmit = (window as any).__doccapture_bridge?.emitPdfLoaded;
             if (bridgeEmit) {
