@@ -1,0 +1,329 @@
+import React, { useRef, useCallback } from 'react';
+import { useAppStore } from '../store/appStore';
+import { PDFViewer } from './PDFViewer';
+import { ImageViewer } from './ImageViewer';
+import { DocViewer } from './DocViewer';
+import { SpreadsheetViewer } from './SpreadsheetViewer';
+import { useBoxCapture } from '../hooks/useBoxCapture';
+import { useAnnotation } from '../hooks/useAnnotation';
+import { AnnotationPanel } from './AnnotationPanel';
+import { isEmbedded } from '../hooks/useEventBridge';
+import type { EventBridgeAPI } from '../hooks/useEventBridge';
+import { RenderLoader } from './RenderLoader';
+import type { AnnotationSettings } from '../hooks/useAnnotation';
+import { useHighlightCanvas } from '../hooks/useHighlightCanvas';
+import { useWordSpanInjector } from '../hooks/useWordSpanInjector';
+import type { PDFAdapter } from '../adapters/PDFAdapter';
+import type { ImageAdapter } from '../adapters/ImageAdapter';
+import type { SpreadsheetAdapter } from '../adapters/SpreadsheetAdapter';
+import type { DocAdapter } from '../adapters/DocAdapter';
+import type { CaptureResult } from '../hooks/useBoxCapture';
+
+// ── No-file placeholder ───────────────────────────────────────────────────────
+function NoPreview() {
+  const isLoading = useAppStore(s => s.isLoading);
+  const loadError = useAppStore(s => s.loadError);
+
+
+
+
+  if (isLoading) return (
+    <div className="flex-1 flex items-center justify-center bg-[#e8e8e8]">
+      <div className="text-center">
+        <div className="w-10 h-10 border-2 border-[#0a84ff] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-[#8899aa] text-sm">Loading document…</p>
+      </div>
+    </div>
+  );
+
+  if (loadError) return (
+    <div className="flex-1 select-none" style={{ position:'relative', overflow:'hidden', background:'#e8e9eb' }}>
+      {/* Same dot-grid as NoPreview */}
+      <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', opacity:.22 }} xmlns="http://www.w3.org/2000/svg">
+        <defs><pattern id="err-dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="1" fill="#94a3b8"/>
+        </pattern></defs>
+        <rect width="100%" height="100%" fill="url(#err-dots)"/>
+      </svg>
+      <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
+        alignItems:'center', justifyContent:'center', gap:12 }}>
+        <div style={{ fontSize:32, lineHeight:1 }}>⚠️</div>
+        <p style={{ fontSize:15, fontWeight:700, color:'#1e293b', letterSpacing:'-.01em' }}>
+          No preview available
+        </p>
+        <p style={{ fontSize:11, color:'#64748b', maxWidth:260, textAlign:'center', lineHeight:1.5 }}>
+          {loadError}
+        </p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex-1 select-none" style={{ position: 'relative', overflow: 'hidden', background: '#e8e9eb' }}>
+
+      {/* Dot-grid background */}
+      <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', opacity:.22 }}
+        xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="np-dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" fill="#94a3b8"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#np-dots)"/>
+      </svg>
+
+      {/* Centred content */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 20,
+      }}>
+        {/* Stacked pages illustration */}
+        <div style={{ position: 'relative', width: 96, height: 118 }}>
+          {/* Back page */}
+          <div style={{
+            position: 'absolute', left: 0, top: 14, width: 72, height: 92,
+            background: '#d1dae4', borderRadius: 4, transform: 'rotate(-6deg)',
+          }}/>
+          {/* Mid page */}
+          <div style={{
+            position: 'absolute', left: 8, top: 7, width: 72, height: 92,
+            background: '#dde5ed', borderRadius: 4, transform: 'rotate(-2deg)',
+          }}/>
+          {/* Front page */}
+          <div style={{
+            position: 'absolute', left: 16, top: 0, width: 72, height: 92,
+            background: '#fff', borderRadius: 4,
+            border: '0.5px solid #c8d4e0',
+            display: 'flex', flexDirection: 'column',
+            padding: '10px 9px', gap: 5,
+          }}>
+            <div style={{ height: 8, background: '#d0dce8', borderRadius: 2, width: '80%' }}/>
+            <div style={{ height: 6, background: '#eaeff5', borderRadius: 2 }}/>
+            <div style={{ height: 6, background: '#eaeff5', borderRadius: 2, width: '90%' }}/>
+            <div style={{ height: 6, background: '#eaeff5', borderRadius: 2, width: '70%' }}/>
+            <div style={{ height: 6, background: '#eaeff5', borderRadius: 2, width: '85%' }}/>
+          </div>
+        </div>
+
+        {/* Heading only — no subtext */}
+        <p style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', letterSpacing: '-.01em' }}>
+          No preview available
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Main pane ─────────────────────────────────────────────────────────────────
+export function ViewerPane({ multiDocLoading = false, bridge }: {
+  multiDocLoading?: boolean;
+  bridge?: EventBridgeAPI;
+}) {
+  const file             = useAppStore(s => s.file);
+  const format           = useAppStore(s => s.format);
+  const adapter          = useAppStore(s => s.adapter);
+  const zoom             = useAppStore(s => s.zoom);
+  const setPendingCapture = useAppStore(s => s.setPendingCapture);
+  const annotateMode = useAppStore(s => s.annotateMode);
+  const currentPage  = useAppStore(s => s.currentPage);
+  const setPreviewRect    = useAppStore(s => s.setPreviewRect);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Persist last valid PDFAdapter so PDFViewer isn't given null during
+  // the brief adapter=null window when openFile() re-creates it.
+  const lastPdfAdapterRef = useRef<import('../adapters/PDFAdapter').PDFAdapter | null>(null);
+  if (adapter && format === 'pdf') {
+    lastPdfAdapterRef.current = adapter as import('../adapters/PDFAdapter').PDFAdapter;
+  }
+  const annotationSettings = useRef<AnnotationSettings>({
+    tool: 'pencil', color: '#e74c3c', size: 2, opacity: 100,
+  });
+  const { undo, clear } = useAnnotation(
+    containerRef as React.RefObject<HTMLElement>,
+    annotationSettings
+  );
+
+  const handleCapture = useCallback((result: CaptureResult) => {
+    // Set preview immediately (shows the capture panel)
+    setPendingCapture({ text: result.text, page: result.page,
+      x: result.x, y: result.y, width: result.width, height: result.height,
+      _textField: result._textField,
+      sourceFormat: result.sourceFormat });
+    setPreviewRect({ page: result.page, x: result.x, y: result.y,
+      width: result.width, height: result.height });
+
+    // In embedded mode: delegate to bridge.handleCaptureResult — centralised in useEventBridge.
+    // Fires CAPTURE_PREVIEW to parent, waits for CAPTURE_ACK, then adds capture with real ID.
+    // If parent doesn't ACK in 15s → preview clears, nothing saved.
+    if (isEmbedded && bridge) {
+      const file = useAppStore.getState().file;
+
+      // Send raw coords back to parent if available (round-trip fidelity).
+      // When word_index was received as { x:14, y:144, width:30, height:9 },
+      // we normalise internally to 0-1 but store originals in _rawX etc.
+      // Use raw if present, otherwise send the normalised 0-1 values.
+      const r = result as any;
+
+      // ── Coordinate round-trip: send back in the same unit the parent sent ──
+      // Priority: 1) _rawX set (capture already has original coords) → use them
+      //           2) wordIndex has entries with _rawUnit → use that unit
+      //           3) captures have entries with _rawUnit → use that unit
+      //           4) fallback → send normalised 0-1 fractions
+      let sendX = result.x, sendY = result.y, sendW = result.width, sendH = result.height;
+      if ((r as any)._rawBbox) {
+        // FORMAT 10: reconstruct original [page, x, y, w, h] bbox
+        const bboxPayload = (r as any)._rawBbox as [number,number,number,number,number];
+        bridge.handleCaptureResult({
+          tempId: '',
+          text:   result.text,
+          page:   result.page,
+          // Required by type but overridden by bbox on the parent side
+          x: result.x, y: result.y, width: result.width, height: result.height,
+          bbox:   bboxPayload,
+          docId:  (file as any)?.__docId,
+        });
+        return;
+      }
+      if (r._rawX !== undefined) {
+        // Normalised-from-parent capture — raw coords preserved by normaliseEntry
+        sendX = r._rawX; sendY = r._rawY; sendW = r._rawWidth; sendH = r._rawHeight;
+      } else {
+        // Click2Pick or drawn box — result is 0-1 fraction.
+        // Detect target unit from what parent sent, then convert if needed.
+        const st       = useAppStore.getState();
+        const adapter  = st.adapter;
+        let   rawUnit: string | undefined;
+
+        // Check wordIndex first (priority 1)
+        if (st.wordIndex.size > 0) {
+          const firstPage = st.wordIndex.values().next().value as any[];
+          rawUnit = firstPage?.[0]?._rawUnit;
+        }
+        // Fall back to captures (priority 2)
+        if (!rawUnit && st.captures.length > 0) {
+          rawUnit = (st.captures[0] as any)._rawUnit;
+        }
+
+        if (rawUnit === 'px' || rawUnit === 'pt') {
+          // Parent sent absolute values — convert 0-1 back to absolute
+          const dims = adapter?.getPageDimensions?.(result.page);
+          if (dims && dims.width && dims.height) {
+            sendX = Math.round(result.x      * dims.width);
+            sendY = Math.round(result.y      * dims.height);
+            sendW = Math.round(result.width  * dims.width);
+            sendH = Math.round(result.height * dims.height);
+          }
+        }
+        // rawUnit === 'norm' or undefined → keep 0-1 fractions (sendX already set)
+      }
+
+      bridge.handleCaptureResult({
+        tempId: '',
+        text:   result.text,
+        page:   result.page,
+        x:      sendX,
+        y:      sendY,
+        width:  sendW,
+        height: sendH,
+        docId:  (file as any)?.__docId,
+      }).then(realId => {
+        const pending = useAppStore.getState().pendingCapture;
+        if (!pending) return;
+
+        // Build new item from result coords (always 0-1 internally)
+        const newItem: import('../adapters/types').CaptureItem = {
+          id:           realId,
+          label:        result.text,
+          value:        result.text,
+          page:         result.page,
+          x:            result.x,
+          y:            result.y,
+          width:        result.width,
+          height:       result.height,
+          sourceFormat: result.sourceFormat,
+          _textField:   result._textField,
+          _rawX:        r._rawX, _rawY: r._rawY,
+          _rawWidth:    r._rawWidth, _rawHeight: r._rawHeight,
+          _rawUnit:     r._rawUnit,
+        };
+
+        const st = useAppStore.getState();
+        const existing = st.captures.find(c => c.id === realId);
+
+        if (existing) {
+          st.replaceCapture(newItem);  // replace — no duplicate
+        } else {
+          st.addCapture(newItem);      // add new (also sets activeFieldId=realId)
+        }
+
+        // After ACK: set as active (yellow highlight) with its bounding box.
+        // addCapture already sets activeFieldId but replaceCapture might not,
+        // so explicitly set here to be safe.
+        st.setActiveField(realId);
+        st.setPreviewRect({
+          page: result.page, x: result.x, y: result.y,
+          width: result.width, height: result.height,
+        });
+
+        // Clear the pending capture panel (the drawing overlay)
+        st.clearPendingCapture();
+      }).catch(() => {
+        // No ACK / timeout — clear preview, nothing saved, nothing active
+        useAppStore.getState().clearPendingCapture();
+        useAppStore.getState().clearPreviewRect();
+        useAppStore.getState().setActiveField(null);
+      });
+    }
+  }, [setPendingCapture, setPreviewRect, bridge]);
+
+  useBoxCapture(containerRef as React.RefObject<HTMLElement>, handleCapture);
+  useHighlightCanvas(containerRef as React.RefObject<HTMLElement>);
+  useWordSpanInjector(containerRef as React.RefObject<HTMLElement>);
+
+  const hasFile = !!file && !!adapter;
+
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden">
+      <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Multi-doc loading overlay — shown while fetching a document */}
+        {multiDocLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#1e2d3d]/80 z-20">
+            <div className="text-center">
+              <div className="w-8 h-8 border-2 border-[#1a7fd4] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              <p className="text-[#8ab0c8] text-xs">Loading document…</p>
+            </div>
+          </div>
+        )}
+        {!hasFile && !multiDocLoading && <NoPreview />}
+        {/* Render progress bar + skeleton — shown while PDF is rendering */}
+        {!!file && format === 'pdf' && <RenderLoader />}
+        {!!file && format === 'pdf' && lastPdfAdapterRef.current && (
+          <PDFViewer
+            key={`${file!.name}-${file!.size}`}
+            file={file!}
+            adapter={lastPdfAdapterRef.current}
+            zoom={zoom} />
+        )}
+        {hasFile && format === 'image' && (
+          <ImageViewer adapter={adapter as unknown as ImageAdapter} zoom={zoom} />
+        )}
+        {hasFile && format === 'document' && (
+          <DocViewer adapter={adapter as import('../adapters/DocAdapter').DocAdapter} zoom={zoom} />
+        )}
+        {hasFile && format === 'spreadsheet' && (
+          <SpreadsheetViewer adapter={adapter as SpreadsheetAdapter} />
+        )}
+        {/* Annotation floating panel — shown when annotateMode active */}
+        {annotateMode && (
+          <AnnotationPanel
+            settings={annotationSettings}
+            onSettingsChange={() => {}}
+            onUndo={undo}
+            onClear={clear}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
