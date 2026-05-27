@@ -222,14 +222,13 @@ export function extractRawCoords(
         return (item as any).__geminiNormalised as [number,number,number,number];
       }
 
-      // Always divide by 1000 — Gemini always returns 0–1000 grid values.
-      // If the caller pre-divided (all values ≤ 1), dividing again would be wrong,
-      // so detect that case and pass through unchanged.
       const alreadyNormalised = x <= 1 && y <= 1 && w <= 1 && h <= 1;
       const normalised: [number,number,number,number] = alreadyNormalised
         ? [x, y, w, h]
         : [x / 1000, y / 1000, w / 1000, h / 1000];
 
+      console.log('[FMT10 COORDS] bbox:', (item as any).bbox,
+        'pg:', pg, 'alreadyNorm:', alreadyNormalised, 'result:', normalised);
       (item as any).__geminiNormalised = normalised;
       return normalised;
     }
