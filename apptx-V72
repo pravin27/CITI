@@ -537,19 +537,25 @@ setCategories(withColors as any);
           const batchResults = normaliseBatch(
             rawCaps,
             (item: any) => {
-              // FORMAT 10: page is inside bbox[0] — __extractedPage is set by extractRawCoords
               const ep = (item as any).__extractedPage;
               return typeof ep === 'number' ? ep : (item.page ?? 1);
             },
             ad,
           );
 
+          console.log('[FMT10 DEBUG] rawCaps count:', rawCaps.length);
+          console.log('[FMT10 DEBUG] batchResults:', batchResults.map((r: any, i: number) => ({
+            i, coords: r.coords, extractedPage: (rawCaps[i] as any).__extractedPage,
+            capPage: (rawCaps[i] as any).page, bbox: (rawCaps[i] as any).bbox,
+          })));
+
           const incoming = rawCaps.map((cap: any, i: number) => {
             const batchResult = batchResults[i];
             const batchCoord  = batchResult?.coords;
-            // For FORMAT 10: page lives in bbox[0] via __extractedPage
-            // Must read AFTER normaliseBatch ran (which calls extractRawCoords → sets __extractedPage)
             const resolvedPage = (cap as any).__extractedPage ?? cap.page ?? 1;
+            console.log('[FMT10 DEBUG] cap', i, 'bbox:', cap.bbox,
+              '__extractedPage:', (cap as any).__extractedPage,
+              'resolvedPage:', resolvedPage, 'coords:', batchCoord);
             const normed = batchCoord
               ? { ...cap,
                   page:   resolvedPage,
@@ -564,9 +570,11 @@ setCategories(withColors as any);
               fromJson:    true,
               sourceFormat: cap.sourceFormat ?? 'flat',
               ...normed,
-              page: resolvedPage,  // ensure page is always set correctly
+              page: resolvedPage,
             } as import('./adapters/types').CaptureItem;
           });
+          console.log('[FMT10 DEBUG] incoming captures:', incoming.map((c: any) =>
+            ({ id: c.id, page: c.page, x: c.x?.toFixed(3), y: c.y?.toFixed(3), w: c.width?.toFixed(3), h: c.height?.toFixed(3) })));
 
           // Merge with existing captures (upsert by id)
           const current = useAppStore.getState().captures;
@@ -588,6 +596,8 @@ setCategories(withColors as any);
             });
           }
 
+          console.log('[FMT10 DEBUG] highlightIndex pages:', Array.from(index.keys()),
+            'entries per page:', Array.from(index.entries()).map(([p, rects]) => `page${p}:${rects.length}rects`));
           // One atomic write — PDFViewer subscription fires ONCE with correct index
           useAppStore.setState({ captures: merged, highlightIndex: index });
 
