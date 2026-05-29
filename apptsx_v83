@@ -1,3 +1,4 @@
+import { navigatePdfPage } from './components/PDFViewer';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useAppStore } from './store/appStore';
 import { TopBar } from './components/TopBar';
@@ -10,6 +11,7 @@ import { useSidecarLoader } from './hooks/useSidecarLoader';
 import { useMultiDoc } from './hooks/useMultiDoc';
 import { MultiDocSidebar } from './components/MultiDocSidebar';
 import type { DocumentManifest } from './types/multiDoc';
+import { categoryColor } from './adapters/types';
 import { useEventBridge, isEmbedded, generateTempId } from './hooks/useEventBridge';
 import { SPLIT_MERGE_URL } from './config';
 import { preloadPdfResources } from './utils/pdfResourceCache';
@@ -90,9 +92,26 @@ export default function App() {
   const showSplitMerge    = useAppStore(s => s.showSplitMerge);
   // splitMergeUrl is internal — read from env (VITE_SPLIT_MERGE_URL), not from parent
   const splitMergeUrl     = SPLIT_MERGE_URL;
-  const [smActive, setSmActive] = React.useState(false);
+  const [smActive,    setSmActive]    = React.useState(false);
+  const [showConfirm,      setShowConfirm]      = React.useState(false);
+  const [showResetConfirm, setShowResetConfirm] = React.useState(false);
+  const [retriggerMode,    setRetriggerMode]    = React.useState<'with_idp'|'without_idp'>('without_idp');
   const smIframeRef       = React.useRef<HTMLIFrameElement>(null);
   const smIframeLoaded    = React.useRef(false);  // tracks cross-origin load state
+
+  // Expose confirm popup opener globally so ThumbnailSidebar/MultiDocSidebar
+  // can trigger the full-viewer overlay without prop drilling
+  React.useEffect(() => {
+    (window as any).__doccapture_openRetriggerConfirm = (mode: 'with_idp'|'without_idp' = 'without_idp') => {
+      setRetriggerMode(mode);
+      setShowConfirm(true);
+    };
+    (window as any).__doccapture_openResetConfirm = () => setShowResetConfirm(true);
+    return () => {
+      delete (window as any).__doccapture_openRetriggerConfirm;
+      delete (window as any).__doccapture_openResetConfirm;
+    };
+  }, []);
 
   useSidecarLoader();
   useGlobalShortcuts();
@@ -114,12 +133,38 @@ export default function App() {
       // (stored by useEventBridge on LOAD_SINGLEDOC / LOAD_MANIFEST)
       const originalMsg = (window as any).__doccapture_last_parent_msg ?? {};
 
-      // Build the SPLIT_MERGE_OPEN envelope:
-      //   payload = the complete original parent message, untouched
-      //   viewerState = viewer-side context added by the viewer
+      // ── Patch payload with CURRENT store state before sending to SM ──────
+      // When SM has reclassified and sent SM_RECLASSIFY, the store holds
+      // the updated categories/documents. We must send THOSE to SM on the
+      // next open — not the stale original from the parent message.
+      const storeCategories = useAppStore.getState().categories;
+      const patchedPayload: Record<string, unknown> = { ...originalMsg };
+
+      // LOAD_SINGLEDOC: patch categories[]
+      if (storeCategories?.length) {
+        patchedPayload.categories = storeCategories;
+      }
+
+      // LOAD_MANIFEST: patch manifest.documents with current state.
+      // Convert internal `categoryId` field back to `category` string
+      // so SM app receives the same format it originally sent.
+      const mds = multiDocRef.current?.state;
+      if (mds?.documents?.length && patchedPayload.manifest) {
+        const docsForSM = mds.documents.map((d: any) => ({
+          ...d,
+          category:   d.categoryId,   // SM expects "category" not "categoryId"
+          categoryId: undefined,       // remove internal field
+        }));
+        patchedPayload.manifest = {
+          ...(patchedPayload.manifest as Record<string, unknown>),
+          documents: docsForSM,
+        };
+      }
+
+      // Build the SPLIT_MERGE_OPEN envelope
       const smMessage: Record<string, unknown> = {
         type:    'SPLIT_MERGE_OPEN',
-        payload: { ...originalMsg },          // exact copy of what parent sent
+        payload: patchedPayload,             // patched with current state
         viewerState: {
           pageCount:   st.pageCount,
           currentPage: st.currentPage,
@@ -187,10 +232,71 @@ export default function App() {
   }, [splitMergeUrl, smIframeRef]);
 
   // Listen for messages FROM the SM iframe (SAVE / EXIT)
+  // ── multiDocRef: lets the message handler (registered once) always access
+  // the latest multiDoc state without being stale from the [] closure ────────
+  const multiDocRef = React.useRef<ReturnType<typeof useMultiDoc> | null>(null);
+
   React.useEffect(() => {
     const handler = (event: MessageEvent) => {
       const data = event.data as Record<string, unknown>;
       if (!data?.type) return;
+
+      // SM_RECLASSIFY — SM iframe sends reclassified data back to viewer.
+      // Supports all three load scenarios:
+      //   LOAD_SINGLEDOC      → categories[] changed
+      //   MultiDoc:SinglePage → documents[].category changed
+      //   MultiDoc:MultiPage  → documents[].pageCategories changed
+      if (data.type === 'SM_RECLASSIFY') {
+        // Always close SM and show viewer regardless of whether data changed
+        (window as any).__doccapture_sm_active = false;
+        setSmActive(false);
+
+        // Re-apply isSplitScreen from SM payload — ensures bar shows even if
+        // the store value was false (e.g. store was reset by a new doc load)
+        if (data.isSplitScreen === true) {
+          useAppStore.getState().setIsSplitScreen(true);
+          useAppStore.getState().setSidebarOpen(true);
+        }
+
+        const hasCategories = Array.isArray(data.categories) && data.categories.length > 0;
+        const hasDocuments  = Array.isArray(data.documents)  && data.documents.length  > 0;
+
+        if (!hasCategories && !hasDocuments) {
+          // No data sent — treat same as SPLIT_MERGE_EXIT (no change in SM app)
+          if (isEmbedded) window.parent.postMessage({ type: 'SPLIT_MERGE_EXITED', reason: 'no_change' }, '*');
+          return;
+        }
+
+        // Option A: Viewer owns the original snapshot — SM sends updated data only.
+        const st = useAppStore.getState();
+
+        // ── LOAD_SINGLEDOC: updated flat categories from SM ───────────────
+        if (hasCategories) {
+          const updated = (data.categories as any[]).map((c: any) => ({
+            ...c, color: c.color ?? categoryColor(c.label ?? c.id ?? ''),
+          }));
+          setTimeout(() => {
+            st.setCategories(updated as any);
+            st.setHasReclassification(true);
+          }, 0);
+        }
+
+        // ── MultiDoc: updated documents from SM ───────────────────────────
+        const md = multiDocRef.current;
+        if (hasDocuments && md?.state) {
+          md.updateDocuments?.(data.documents as any[]);
+          st.setHasReclassification(true);
+        }
+
+        // Reset retrigger bar to 'idle' so it reappears with fresh data.
+        // The sidebar keeps retriggerState in local component state — it persists
+        // as 'done' from any prior Retrigger click since the component stays mounted.
+        // Calling this reset makes the bar visible again after SM_RECLASSIFY.
+        (window as any).__doccapture_resetRetriggerBar?.();
+
+        // NOTE: st.originalCategories is intentionally NOT touched here.
+        return;
+      }
 
       if (data.type === 'SPLIT_MERGE_SAVE') {
         // Deactivate SM mode
@@ -220,6 +326,16 @@ export default function App() {
 
   // ── Multi-doc state ───────────────────────────────────────────────────────
   const multiDoc = useMultiDoc();
+  // Keep ref in sync so message handler always has latest state
+  multiDocRef.current = multiDoc;
+
+  // Expose updateDocuments globally so MultiDocSidebar handleDiscard can call it
+  React.useEffect(() => {
+    (window as any).__doccapture_updateDocuments = (docs: any[]) => {
+      multiDoc.updateDocuments?.(docs);
+    };
+    return () => { delete (window as any).__doccapture_updateDocuments; };
+  }, [multiDoc]);
 
   // ── Event bridge (only active when running inside an iframe) ─────────────
   // ── waitForAdapter ────────────────────────────────────────────────────────
@@ -308,14 +424,23 @@ export default function App() {
         }
       }
 
-      // Apply categories now that pageCount is known
+      // Apply categories now that pageCount is known.
+      // Use setTimeout(0) to yield the main thread AFTER pdfjs has processed
+      // any pending navigation (currentPageNumber assignment) before the heavy
+      // ThumbnailSidebar useMemo re-render for 20-30 categories fires.
+      // Without this yield, a 400-page doc with 30 categories blocks the thread
+      // and pdfjs cannot process navigation requests.
       if (meta.categories) {
-        const PALETTE = ['blue','teal','amber','gray','purple','coral','green','red'];
         const withColors = (meta.categories as any[]).map((cat: any, i: number) => ({
           ...cat,
-          color: cat.color ?? PALETTE[i % PALETTE.length],
+          color: cat.color ?? categoryColor(cat.label ?? cat.id ?? ''),
         }));
-        setCategories(withColors as any);
+        setTimeout(() => {
+          setCategories(withColors as any);
+          useAppStore.getState().setOriginalCategories(withColors as any);
+          useAppStore.getState().setHasReclassification(false);
+          useAppStore.getState().setOriginalDocuments(null);
+}, 0);
       }
 
       // After adapter is ready, force a redraw of all visible pages
@@ -404,24 +529,39 @@ export default function App() {
           const rawCaps = meta.captures as any[];
 
           // Run batch normalisation: detects unit from max coord across all items
+          const coordSpace2 = (meta as any)?.coordinateSpace as 'px'|'pt'|'norm'|undefined;
+          const rawCapsHinted = coordSpace2
+            ? rawCaps.map((c: any) => ({ ...c, _rawUnit: coordSpace2 }))
+            : rawCaps;
           const batchResults = normaliseBatch(
             rawCaps,
             (item: any) => {
-              // FORMAT 10: page is in bbox[0], set as __extractedPage by extractRawCoords
               const ep = (item as any).__extractedPage;
               return typeof ep === 'number' ? ep : (item.page ?? 1);
             },
             ad,
           );
 
+          console.log('[FMT10 DEBUG] rawCaps count:', rawCaps.length);
+          console.log('[FMT10 DEBUG] batchResults:', batchResults.map((r: any, i: number) => ({
+            i, coords: r.coords, extractedPage: (rawCaps[i] as any).__extractedPage,
+            capPage: (rawCaps[i] as any).page, bbox: (rawCaps[i] as any).bbox,
+          })));
+
           const incoming = rawCaps.map((cap: any, i: number) => {
-            const batchCoord = batchResults[i]?.coords;
-            // FORMAT 10: page from bbox[0] via __extractedPage (set by normaliseBatch)
+            const batchResult = batchResults[i];
+            const batchCoord  = batchResult?.coords;
             const resolvedPage = (cap as any).__extractedPage ?? cap.page ?? 1;
+            console.log('[FMT10 DEBUG] cap', i, 'bbox:', cap.bbox,
+              '__extractedPage:', (cap as any).__extractedPage,
+              'resolvedPage:', resolvedPage, 'coords:', batchCoord);
             const normed = batchCoord
-              ? { ...cap, page: resolvedPage,
-                  x: batchCoord[0], y: batchCoord[1],
-                  width: batchCoord[2], height: batchCoord[3] }
+              ? { ...cap,
+                  page:   resolvedPage,
+                  x:      batchCoord[0],
+                  y:      batchCoord[1],
+                  width:  batchCoord[2],
+                  height: batchCoord[3] }
               : normaliseEntry(cap, resolvedPage, ad, extractRawCoords, normaliseCoords);
             return {
               label:       cap.label ?? cap.text ?? cap.value ?? '',
@@ -429,9 +569,11 @@ export default function App() {
               fromJson:    true,
               sourceFormat: cap.sourceFormat ?? 'flat',
               ...normed,
-              page: resolvedPage,  // FORMAT 10: ensure page from bbox[0] always wins
+              page: resolvedPage,
             } as import('./adapters/types').CaptureItem;
           });
+          console.log('[FMT10 DEBUG] incoming captures:', incoming.map((c: any) =>
+            ({ id: c.id, page: c.page, x: c.x?.toFixed(3), y: c.y?.toFixed(3), w: c.width?.toFixed(3), h: c.height?.toFixed(3) })));
 
           // Merge with existing captures (upsert by id)
           const current = useAppStore.getState().captures;
@@ -453,10 +595,13 @@ export default function App() {
             });
           }
 
-          // Only persist captures if flag is true
+          console.log('[FMT10 DEBUG] highlightIndex pages:', Array.from(index.keys()),
+            'entries per page:', Array.from(index.entries()).map(([p, rects]) => `page${p}:${rects.length}rects`));
+          // Only persist if persistHighlights=true
           if (useAppStore.getState().persistHighlights) {
             useAppStore.setState({ captures: merged, highlightIndex: index });
           }
+          // If false: captures from LOAD are discarded — only HIGHLIGHT events show boxes
 
           // Trigger redraws at increasing intervals to cover all timing scenarios:
           //   T+0ms:   subscription fires from setState above — handles case where
@@ -502,15 +647,50 @@ export default function App() {
       // showSplitMerge from LOAD_SINGLEDOC — enables icon if VITE_SPLIT_MERGE_URL is set
       if ((meta as any)?.showSplitMerge !== undefined)
         useAppStore.getState().setShowSplitMerge(!!(meta as any).showSplitMerge);
-      // persistHighlights: default false — only true when parent explicitly sends true
+      // Default: false (transient). Only true when parent explicitly sends persistHighlights:true
       useAppStore.getState().setPersistHighlights(
         (meta as any)?.persistHighlights === true
       );
+      if ((meta as any)?.isSplitScreen !== undefined) {
+        const val = !!(meta as any).isSplitScreen;
+        console.log('[App onLoadSingleDoc] isSplitScreen=', val, 'meta=', JSON.stringify(meta).slice(0,200));
+        useAppStore.getState().setIsSplitScreen(val);
+        if (val) useAppStore.getState().setSidebarOpen(true);
+        console.log('[App] after set: isSplitScreen=', useAppStore.getState().isSplitScreen, 'sidebarOpen=', useAppStore.getState().sidebarOpen);
+      } else {
+        console.log('[App onLoadSingleDoc] isSplitScreen NOT in meta. meta keys=', Object.keys(meta ?? {}));
+      }
+      if ((meta as any)?.openThumbnail)
+        useAppStore.getState().setSidebarOpen(true);
     },
 
     onLoadManifest: (manifest, activeDocId, activeBuffer, meta) => {
+      // Pre-seed the file cache with activeBuffer BEFORE loadManifest triggers
+      // the auto-select (which calls selectDoc via setTimeout). Without this,
+      // selectDoc sees no cache hit and fires DOC_REQUEST even though the buffer
+      // is already available in the initial LOAD_MANIFEST payload.
+      if (activeBuffer && activeBuffer.byteLength > 0 && activeDocId) {
+        const doc = (manifest.documents ?? []).find((d: any) => d.id === activeDocId);
+        const name = (doc as any)?.name ?? `${activeDocId}.pdf`;
+        const mime = name.endsWith('.pdf') ? 'application/pdf'
+          : name.endsWith('.tif') || name.endsWith('.tiff') ? 'image/tiff'
+          : name.endsWith('.png') ? 'image/png'
+          : name.endsWith('.jpg') || name.endsWith('.jpeg') ? 'image/jpeg'
+          : 'application/octet-stream';
+        const blob = new Blob([activeBuffer], { type: mime });
+        const file = new File([blob], name, { type: mime });
+        try {
+          Object.defineProperty(file, '__docId',
+            { value: activeDocId, enumerable: false, writable: false });
+        } catch (_) {}
+        // Inject directly into multiDoc file cache before loadManifest auto-select fires
+        const blobUrl = URL.createObjectURL(blob);
+        multiDoc.preSeedCache?.(activeDocId, file, blobUrl);
+      }
+
       multiDoc.loadManifest(manifest);
-      if (activeBuffer && activeDocId) {
+
+      if (activeBuffer && activeBuffer.byteLength > 0 && activeDocId) {
         const doc = (manifest.documents ?? []).find((d: any) => d.id === activeDocId);
         const name = (doc as any)?.name ?? `${activeDocId}.pdf`;
         openFileBuffer(activeBuffer, name);
@@ -530,10 +710,29 @@ export default function App() {
       // showSplitMerge from LOAD_MANIFEST
       if ((meta as any)?.showSplitMerge !== undefined)
         useAppStore.getState().setShowSplitMerge(!!(meta as any).showSplitMerge);
-      // persistHighlights: default false — only true when parent explicitly sends true
+      // Default: false (transient). Only true when parent explicitly sends persistHighlights:true
       useAppStore.getState().setPersistHighlights(
         (meta as any)?.persistHighlights === true
       );
+      if ((meta as any)?.isSplitScreen !== undefined) {
+        const val = !!(meta as any).isSplitScreen;
+        console.log('[App onLoadManifest] isSplitScreen=', val, 'meta=', JSON.stringify(meta).slice(0,200));
+        useAppStore.getState().setIsSplitScreen(val);
+        if (val) useAppStore.getState().setSidebarOpen(true);
+        console.log('[App] after set: isSplitScreen=', useAppStore.getState().isSplitScreen, 'sidebarOpen=', useAppStore.getState().sidebarOpen);
+      } else {
+        console.log('[App onLoadManifest] isSplitScreen NOT in meta. meta keys=', Object.keys(meta ?? {}));
+      }
+      if ((meta as any)?.openThumbnail)
+        useAppStore.getState().setSidebarOpen(true);
+
+      // Snapshot manifest documents for MultiDoc Discard/Reset
+      if (manifest.documents?.length) {
+        const snap = (manifest.documents as any[]).map((d: any) => ({ ...d }));
+        useAppStore.getState().setOriginalDocuments(snap);
+        useAppStore.getState().setOriginalCategories(null);
+        useAppStore.getState().setHasReclassification(false);
+      }
     },
 
     // Called after DOC_RESPONSE resolves — apply per-doc meta
@@ -549,79 +748,81 @@ export default function App() {
 
       const persist = useAppStore.getState().persistHighlights;
 
-      // Clear previous
+      // Clear previous active highlight
       useAppStore.getState().setActiveField(null);
       useAppStore.getState().setPreviewRect(null);
 
-      // MultiDoc — switch doc if needed
+      // MultiDoc — switch to target doc if needed
       if (payload.docId && multiDoc.state &&
           payload.docId !== multiDoc.state.activeDocId) {
         await multiDoc.selectDoc(payload.docId);
       }
 
       if (persist) {
-        // ── PERSIST MODE ─────────────────────────────────────────────────────
-        // Captures stay in store as grey. Active = yellow.
+        // ── PERSIST MODE (default) ───────────────────────────────────────────
+        // Captures stay in store as grey boxes. Active = yellow.
         const found = navigateAndHighlight(payload.id);
         if (found) return;
+        // Not in store yet — parse and add
         const result = parseHighlightPayload(payload, adapter);
-        if ('error' in result) { console.warn('[onHighlight]', result.error); return; }
+        if ('error' in result) {
+          console.warn('[onHighlight] No valid coords:', result.error);
+          return;
+        }
         addCaptureWithId(result.item);
-
       } else {
-        // ── TRANSIENT MODE (persistHighlights:false) ─────────────────────────
-        // No grey boxes. No store persistence between events.
-        // Active item   → YELLOW  (rect.id === activeFieldId)
-        // Duplicate coords → LIGHT PINK
-
+        // ── TRANSIENT MODE (persistHighlights:false) ────────────────────────
+        // No grey boxes. No store persistence.
+        // Current highlight = YELLOW. Duplicate coords = LIGHT PINK.
+        // All previous highlights cleared on each new HIGHLIGHT event.
         const result = parseHighlightPayload(payload, adapter);
-        if ('error' in result) { console.warn('[onHighlight]', result.error); return; }
+        if ('error' in result) {
+          console.warn('[onHighlight] No valid coords:', result.error);
+          return;
+        }
         const item = result.item;
 
-        // Navigate to page
-        navigatePdfPage(item.page);
-        useAppStore.getState().adapter?.navigateToPage?.(item.page);
+        // Navigate to the page
+        const ad = useAppStore.getState().adapter;
+        if (ad) navigatePdfPage(item.page);
+        ad?.navigateToPage?.(item.page);
 
-        // Find previous transient captures with same coords → LIGHT PINK duplicates
-        const prev = useAppStore.getState().captures;
+        // Find any captures with same coords (duplicates) → light pink
+        const existing = useAppStore.getState().captures;
         const PINK = '#ffb3c1';
-        const dups = prev.filter(c =>
-          Math.abs(c.x - item.x) < 0.003 &&
-          Math.abs(c.y - item.y) < 0.003 &&
-          c.page === item.page
+        const duplicates = existing.filter(c =>
+          c.page === item.page &&
+          Math.abs(c.x - item.x) < 0.002 &&
+          Math.abs(c.y - item.y) < 0.002
         );
 
-        // Build fresh highlightIndex:
-        //  • active item with its id → painted YELLOW by painter (isAct = true)
-        //  • duplicates with color tag → painted PINK by painter (rect.color path)
-        const index = new Map<number, Array<{
-          x:number; y:number; width:number; height:number;
-          id:string; color?:string;
-        }>>();
+        // Build transient highlight set:
+        // Active item → YELLOW (rect.id === activeFieldId in painter)
+        // Duplicates  → LIGHT PINK (rect.color in painter)
+        const transientCaptures = [
+          item,
+          ...duplicates.filter(d => d.id !== item.id).map(c => ({ ...c, color: PINK })),
+        ];
 
-        const addRect = (page: number, entry: typeof index extends Map<number, Array<infer T>> ? T : never) => {
+        // highlightIndex: active item (no color = yellow path) + duplicates (pink)
+        const index = new Map<number, { x:number; y:number; width:number; height:number; id:string; color?:string }[]>();
+        const addRect = (page: number, entry: { x:number; y:number; width:number; height:number; id:string; color?:string }) => {
           if (!index.has(page)) index.set(page, []);
           index.get(page)!.push(entry);
         };
-
-        // Active rect — id must match activeFieldId for yellow
+        // Active item — no color so painter uses yellow (isAct = true)
         addRect(item.page, { x: item.x, y: item.y, width: item.width, height: item.height, id: item.id });
-
-        // Duplicate rects — different id so not active, but color=PINK
-        for (const dup of dups) {
-          if (dup.id !== item.id) {
-            addRect(dup.page, { x: dup.x, y: dup.y, width: dup.width, height: dup.height,
-              id: dup.id, color: PINK });
-          }
+        // Duplicates — pink color
+        for (const d of duplicates.filter(d => d.id !== item.id)) {
+          addRect(d.page, { x: d.x, y: d.y, width: d.width, height: d.height, id: d.id, color: PINK });
         }
-
-        // Write atomically — only active + dups, no grey captures
         useAppStore.setState({
-          captures:       [item, ...dups.filter(d => d.id !== item.id)],
+          captures:       transientCaptures,
           highlightIndex: index,
           activeFieldId:  item.id,
         });
 
+        // Show yellow via previewRect
         useAppStore.getState().setPreviewRect({
           page: item.page, x: item.x, y: item.y,
           width: item.width, height: item.height,
@@ -697,12 +898,19 @@ export default function App() {
 
     // SET_CAPTURES — load or merge captures at any point after doc load
     onSetCaptures: (incoming, mode, _docId) => {
-      import('./utils/coords').then(({ extractRawCoords, normaliseCoords, normaliseBatch }) => {
+      import('./utils/coords').then(({ extractRawCoords, normaliseCoords, normaliseBatch, getExtractedPage }) => {
         const ad = useAppStore.getState().adapter;
 
         // Batch normalisation — consistent unit detection across all captures
         const incomingArr = incoming as any[];
-        const batchRes = normaliseBatch(incomingArr, (item: any) => item.page ?? 1, ad);
+        console.log('[App onSetCaptures] normaliseBatch for', incomingArr.length, 'captures:',
+          incomingArr.map((c: any) => JSON.stringify({bbox: c.bbox, page: c.page})).join(' | '));
+        const batchRes = normaliseBatch(incomingArr, (item: any) => {
+          const ep = (item as any).__extractedPage;
+          return typeof ep === 'number' ? ep : (item.page ?? 1);
+        }, ad);
+        console.log('[App onSetCaptures] batchResults:',
+          batchRes.map((r: any) => r.coords ? r.coords.map((v: number) => v.toFixed(3)).join(',') : 'null').join(' | '));
 
         const normalised = incomingArr.map((cap: any, i: number) => {
           const bc = batchRes[i]?.coords;
@@ -851,14 +1059,21 @@ export default function App() {
     if (fileKey === lastLoadedFileRef.current) {
       // Cache hit — same File object, pdfjs already loaded.
       // Just navigate to the requested page.
-      const pg = pendingPageRef.current;
+      // Use multiDoc state activePage as source of truth (covers handleSelectPage path).
+      const pg = multiDoc.state?.activePage ?? pendingPageRef.current;
       if (pg >= 1) {
         setCurrentPage(pg);
-        useAppStore.getState().adapter?.navigateToPage?.(pg);
+        // Small timeout ensures pdfjs viewer is not mid-render from a previous event
+        const fmt = useAppStore.getState().format;
+        if (fmt === 'pdf') { navigatePdfPage(pg); }
+        else { useAppStore.getState().adapter?.navigateToPage?.(pg); }
       }
       return;
     }
     lastLoadedFileRef.current = fileKey;
+    // Immediately clear all PageThumbRow canvases on the new doc
+    // so user sees blank + loading instead of stale previous-doc content
+    (window as any).__doccapture_clearThumbs?.();
     // Preserve user zoom across multi-doc navigation.
     // If zoomMode is 'custom' (explicit %): restore immediately after the sync reset.
     // If zoomMode is 'page-fit'/'page-width': let ViewerToolbar auto-apply recalculate
@@ -905,13 +1120,87 @@ export default function App() {
 
   // Page selection within the current document
   const handleSelectPage = useCallback((page: number) => {
+    pendingPageRef.current = page;
     multiDoc.selectPage(page);
     setCurrentPage(page);
-    useAppStore.getState().adapter?.navigateToPage?.(page);
+    const ad = useAppStore.getState().adapter;
+    if (useAppStore.getState().format === 'pdf') { navigatePdfPage(page); }
+    else { ad?.navigateToPage?.(page); }
   }, [multiDoc, setCurrentPage]);
+
+  // ── VIEWER_STATE_CHANGED — single unified event for parent ─────────────────
+  // Fires whenever the user navigates to a different page OR switches document.
+  // Covers: toolbar nav, thumbnail click, PDF scroll, keyboard, MultiDoc doc switch.
+  // Parent subscribes to one event type for all navigation notifications.
+  const prevStateRef = React.useRef<{ page: number; docId: string | null }>({
+    page: 0, docId: null,
+  });
+  React.useEffect(() => {
+    if (!isEmbedded) return;
+    const unsub = useAppStore.subscribe((s) => {
+      const page      = s.currentPage;
+      const name      = s.fileName;
+      const pageCount = s.pageCount;
+      if (!name) return;
+      const mds   = multiDoc.state;
+      const docId = mds?.activeDocId ?? null;
+      const prev  = prevStateRef.current;
+      if (page === prev.page && docId === prev.docId) return;
+      prevStateRef.current = { page, docId };
+      const doc = mds?.documents?.find((d: any) => d.id === docId);
+      window.parent.postMessage({
+        type:      'VIEWER_STATE_CHANGED',
+        page,
+        pageCount,
+        fileName:  name,
+        docId:     docId    ?? undefined,
+        docLabel:  (doc as any)?.label ?? (doc as any)?.name ?? docId ?? undefined,
+        mode:      mds?.mode ?? undefined,
+        totalDocs: mds?.documents?.length ?? undefined,
+      }, '*');
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmbedded, multiDoc.state]);
 
   const showMultiSidebar   = enableThumbnailView && !!multiDoc.state && sidebarOpen;
   const showDefaultSidebar = enableThumbnailView && !multiDoc.state && sidebarOpen;
+
+  const handleConfirmProceed = React.useCallback(() => {
+    setShowConfirm(false);
+    const st = useAppStore.getState();
+    window.parent.postMessage({
+      type:       'RETRIGGER_CLICKED',
+      mode:       retriggerMode,
+      fileName:   st.fileName,
+      page:       st.currentPage,
+      pageCount:  st.pageCount,
+      categories: st.categories,
+    }, '*');
+    // Hide Split & Merge icon after Retrigger — re-enabled on next LOAD_SINGLEDOC
+    // or LOAD_MANIFEST that explicitly passes showSplitMerge:true
+    useAppStore.getState().setShowSplitMerge(false);
+    (window as any).__doccapture_retriggerSuccess?.();
+  }, [retriggerMode]);
+
+  const handleConfirmCancel = React.useCallback(() => {
+    setShowConfirm(false);
+  }, []);
+
+  // Reset (Discard) popup handlers
+  const handleResetProceed = React.useCallback(() => {
+    setShowResetConfirm(false);
+    // Delegate to sidebar's handleDiscard — same function that was already working
+    // when Reset was next to Retrigger. It handles both SingleDoc and MultiDoc restore,
+    // fires DISCARD_CLICKED, and hides the bar via setRetriggerState('done').
+    (window as any).__doccapture_doDiscard?.();
+    // Additionally hide toolbar Reset button and Split/Merge icon
+    useAppStore.getState().setIsSplitScreen(false);
+  }, []);
+
+  const handleResetCancel = React.useCallback(() => {
+    setShowResetConfirm(false);
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-[#060d1a] overflow-hidden">
@@ -1009,6 +1298,133 @@ export default function App() {
       />
       )}
       </div>{/* end viewer content wrapper */}
+      {/* ── Retrigger confirmation popup — full viewer overlay ───────────── */}
+      {showConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #d4dce8',
+            borderRadius: '12px',
+            padding: '24px 20px',
+            width: '280px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.22)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+          }}>
+            {/* Icon */}
+            <div style={{
+              width: 40, height: 40, borderRadius: '50%',
+              background: '#185FA5',
+              border: '1px solid #0c447c',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span aria-hidden="true" style={{
+                fontSize: 20, color: '#e8f2fb', lineHeight: 1,
+                fontStyle: 'normal', fontWeight: 500,
+              }}>⇅</span>
+            </div>
+            {/* Title */}
+            <span style={{
+              fontSize: '14px', fontWeight: 600,
+              color: '#111827', textAlign: 'center',
+            }}>
+              Confirm Classification
+            </span>
+            {/* Body */}
+            <span style={{
+              fontSize: '12px', color: '#6b7280',
+              textAlign: 'center', lineHeight: 1.6,
+            }}>
+              You are about to finalize the document classification.
+              This action cannot be undone. Do you want to proceed?
+            </span>
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: 8, width: '100%', marginTop: 4 }}>
+              <button onClick={handleConfirmCancel} style={{
+                flex: 1, padding: '7px 0', borderRadius: '7px',
+                background: '#f0f2f4',
+                border: '1px solid #d4dce8',
+                fontSize: '12px', fontWeight: 500,
+                color: '#374151', cursor: 'pointer',
+              }}>
+                Cancel
+              </button>
+              <button onClick={handleConfirmProceed} style={{
+                flex: 1, padding: '7px 0', borderRadius: '7px',
+                background: '#1e2d3d', border: 'none',
+                fontSize: '12px', fontWeight: 500,
+                color: '#e8ecf0', cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center',
+                justifyContent: 'center', gap: 6,
+              }}>
+                ⇅ Retrigger
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reset (Discard) confirmation popup ──────────────────────────── */}
+      {showResetConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #d4dce8',
+            borderRadius: '12px',
+            padding: '24px 20px',
+            width: '280px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.22)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+          }}>
+            {/* Icon — grey, neutral */}
+            <div style={{
+              width: 40, height: 40, borderRadius: '50%',
+              background: '#f0f2f4',
+              border: '1px solid #d4dce8',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span aria-hidden="true" style={{
+                fontSize: 18, color: '#374151', lineHeight: 1,
+                fontStyle: 'normal', fontWeight: 500,
+              }}>↺</span>
+            </div>
+            {/* Title */}
+            <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827', textAlign: 'center' }}>
+              Undo changes?
+            </span>
+            {/* Body */}
+            <span style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center', lineHeight: 1.6 }}>
+              This will revert to the original classification. Modified changes will be lost.
+            </span>
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: 8, width: '100%', marginTop: 4 }}>
+              <button onClick={handleResetCancel} style={{
+                flex: 1, padding: '7px 0', borderRadius: '7px',
+                background: '#f0f2f4', border: '1px solid #d4dce8',
+                fontSize: '12px', fontWeight: 500, color: '#374151', cursor: 'pointer',
+              }}>
+                No, keep
+              </button>
+              <button onClick={handleResetProceed} style={{
+                flex: 1, padding: '7px 0', borderRadius: '7px',
+                background: '#1e2d3d', border: 'none',
+                fontSize: '12px', fontWeight: 500, color: '#e8ecf0', cursor: 'pointer',
+              }}>
+                Yes, reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
