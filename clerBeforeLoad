@@ -1,0 +1,20 @@
+onLoadManifest: (manifest, ...) => {
+  useAppStore.getState().setCategories([]);   // ← clears stale single-doc categories
+  useAppStore.setState({
+    captures: [], highlightIndex: new Map(),   // fresh captures
+    originalCategories: null, ...
+  });
+  multiDoc.loadManifest(manifest);  // then load new manifest
+
+
+
+onLoadSingleDoc: (buffer, fileName, meta) => {
+  multiDoc.clearMultiDoc();          // ← removes old manifest state
+  useAppStore.getState().setCategories([]);  // ← clears stale categories immediately
+  useAppStore.setState({
+    originalCategories: null,
+    originalDocuments:  null,
+    hasReclassification: false,
+  });
+  openFileBuffer(buffer, fileName);  // then load new doc
+  applyDocMeta(meta);
