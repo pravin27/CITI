@@ -168,6 +168,7 @@ function PageInput() {
     const p = parseInt(val);
     if (!isNaN(p) && p >= 1 && p <= pageCount) {
       setCurrentPage(p);
+      navigatePdfPage(p);
       adapter?.navigateToPage(p);
     }
     setEditing(false);
@@ -563,7 +564,6 @@ export function ViewerToolbar() {
   const prevPage = () => {
     if (currentPage > 1) {
       const p = currentPage - 1;
-      console.log('[NAV] toolbar prevPage:', p);
       (window as any).__doccapture_pauseThumbRender?.();
       setCurrentPage(p);
       if (format === 'pdf') { navigatePdfPage(p); } else { adapter?.navigateToPage(p); }
@@ -572,7 +572,6 @@ export function ViewerToolbar() {
   const nextPage = () => {
     if (currentPage < pageCount) {
       const p = currentPage + 1;
-      console.log('[NAV] toolbar nextPage:', p);
       (window as any).__doccapture_pauseThumbRender?.();
       setCurrentPage(p);
       if (format === 'pdf') { navigatePdfPage(p); } else { adapter?.navigateToPage(p); }
