@@ -427,3 +427,4 @@ export function useThumbnailRenderer(adapter: AdapterInstance | null) {
 
   return { registerThumb, unregisterThumb, pauseRendering };
 }
+
