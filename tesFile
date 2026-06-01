@@ -1,0 +1,22 @@
+if (st.persistHighlights) {
+          // ── PERSIST MODE: add as permanent grey capture ──────────────────
+          const existing = st.captures.find(c => c.id === realId);
+          if (existing) {
+            st.replaceCapture(newItem);
+          } else {
+            st.addCapture(newItem);
+          }
+        } else {
+          // ── TRANSIENT MODE: yellow only, no persistent grey box ──────────
+          // Replace entire captures with just this item.
+          // Active rect has no color → painter uses yellow (isAct = true).
+          const index = new Map([[
+            result.page,
+            [{ x: result.x, y: result.y, width: result.width, height: result.height, id: realId }]
+          ]]);
+          useAppStore.setState({
+            captures:       [newItem],
+            highlightIndex: index,
+            activeFieldId:  realId,
+          });
+        }
