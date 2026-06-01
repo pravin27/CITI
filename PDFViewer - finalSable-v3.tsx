@@ -76,21 +76,8 @@ function injectPulseCSS() {
   s.textContent = `
     .tov-pulse-box{position:absolute;border-radius:3px;pointer-events:none;z-index:20;
       border:1.5px solid rgba(0,0,0,0.75);background:rgba(0,0,0,0.04);}
-
-    /* Fix horizontal scroll cut-off on high zoom.
-       pdfjs sets margin:auto on .page divs — when page is wider than container
-       margin-left collapses to 0 so left content is unreachable.
-       Override: use a small fixed margin so left edge is always reachable. */
-    .pdfViewer .page {
-      margin-left:  auto !important;
-      margin-right: auto !important;
-    }
-    /* When the pdfViewer itself is wider than its scroll container,
-       left-align so both sides are scrollable */
-    .pdfViewer {
-      width: fit-content !important;
-      min-width: 100%;
-    }
+    .pdfViewer { width: fit-content !important; min-width: 100%; }
+    .pdfViewer .page { margin-left: auto !important; margin-right: auto !important; }
   `;
   document.head.appendChild(s);
 }
@@ -214,7 +201,7 @@ function rebuildCaches(ds: DrawState, caches: DrawCaches) {
 // pageDiv: the page DOM element — used to scan text layer for word occurrences
 //          when no word_index is loaded (PDF with native text layer).
 function paintPage(ctx: Ctx2D, W: number, H: number, page: number,
-  ds: DrawState, caches: DrawCaches, pageDiv?: HTMLElement, isZooming?: boolean) {
+  ds: DrawState, caches: DrawCaches, pageDiv?: HTMLElement) {
   ctx.clearRect(0, 0, W, H);
 
   const rects  = ds.highlightIndex.get(page) ?? [];
@@ -266,9 +253,6 @@ function paintPage(ctx: Ctx2D, W: number, H: number, page: number,
   }
 
   // ── Word occurrences ──────────────────────────────────────────────────────
-  // Skip word-index painting while zoom is changing — expensive for 400-800 field docs.
-  // After zoom settles the scalechange handler triggers a repaint that includes word index.
-  if (isZooming) return;
   // Show word occurrence highlights for ALL captures (grey when inactive, pink for active word)
   // Skip set — prevents word occurrences from drawing over already-drawn capture boxes.
   // Uses a tolerance grid: snap coords to 8-unit grid so small positional differences
@@ -429,10 +413,7 @@ export function PDFViewer({
   // Overlay canvases keyed by page number
   const overlayMap = useRef(new Map<number, HTMLCanvasElement>());
   // Pulse div
-  const pulseRef    = useRef<HTMLDivElement | null>(null);
-  // Zoom-in-progress — skips word-index painting during active zoom for performance
-  const isZoomingRef    = useRef(false);
-  const zoomSettleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseRef   = useRef<HTMLDivElement | null>(null);
   // Stable refs for draw functions — ensures subscription always calls latest
   const drawAllRef  = useRef<() => void>(() => {});
   const snapRef     = useRef<() => void>(() => {});
@@ -472,21 +453,6 @@ export function PDFViewer({
   // ── Draw one page overlay ─────────────────────────────────────────────────
   // pageDiv: the pdfjs .page div
   // W, H:   CSS display pixels from pdfjs viewport (accurate, no clientWidth)
-  // Per-page paint cache: { W, H, captureLen, activeFieldId, previewRectKey }
-  // Skip repaint if nothing that affects THIS page has changed.
-  const pageCache = useRef(new Map<number, string>());
-
-  function pageStateKey(pageNum: number, W: number, H: number, ds: DrawState): string {
-    const rects  = ds.highlightIndex.get(pageNum);
-    const pr     = ds.previewRect;
-    const prKey  = pr?.page === pageNum ? `${pr.x.toFixed(4)},${pr.y.toFixed(4)}` : '';
-    // Include first rect coords so transient mode (same count, different field) invalidates
-    const r0     = rects?.[0];
-    const r0Key  = r0 ? `${r0.x.toFixed(4)},${r0.y.toFixed(4)},${r0.id}` : '';
-    const hasPR = ds.previewRect?.page === pageNum ? '1' : '0';
-    return `${W}x${H}|${ds.activeFieldId ?? ''}|${rects?.length ?? 0}|${r0Key}|${prKey}|${hasPR}|${ds.search.currentIndex}`;
-  }
-
   function drawPageOverlay(pageNum: number, pageDiv: HTMLElement, W: number, H: number) {
     const ds = dsRef.current;
     const hasCap  = (ds.highlightIndex.get(pageNum)?.length ?? 0) > 0;
@@ -499,25 +465,13 @@ export function PDFViewer({
     const hasCgcOrAwt = cachesRef.current.cgc.some(g => g.ids.length > 0)
                      || !!cachesRef.current.awt;
 
-    // Remove overlay only when there is genuinely nothing to draw on this page.
-    // Also keep canvas when previewRect is on this page (shows yellow during Click2Pick).
-    const hasPR = ds.previewRect?.page === pageNum;
-    if (!hasCap && !hasSrch && !hasWI && !hasCgcOrAwt && !hasPR) {
+    // Remove overlay only when there is genuinely nothing to draw on this page
+    if (!hasCap && !hasSrch && !hasWI && !hasCgcOrAwt) {
       const ex = overlayMap.current.get(pageNum);
       if (ex) { ex.remove(); overlayMap.current.delete(pageNum); }
-      pageCache.current.delete(pageNum);
       updatePulse();
       return;
     }
-
-    // Per-page dirty check — skip repaint if state unchanged for this page.
-    // With 800 captured fields, most pages haven't changed between redraws.
-    // This makes drawAllVisible O(visible_changed_pages) instead of O(all_pages).
-    const newKey = pageStateKey(pageNum, W, H, ds);
-    if (pageCache.current.get(pageNum) === newKey && overlayMap.current.has(pageNum)) {
-      return; // nothing changed for this page — skip repaint
-    }
-    pageCache.current.set(pageNum, newKey);
 
     // Get or create overlay canvas
     let oc = overlayMap.current.get(pageNum);
@@ -546,7 +500,7 @@ export function PDFViewer({
     }
 
     const ctx2d = oc.getContext('2d')!;
-    paintPage(ctx2d, iW, iH, pageNum, ds, cachesRef.current, pageDiv, isZoomingRef.current);
+    paintPage(ctx2d, iW, iH, pageNum, ds, cachesRef.current, pageDiv);
     updatePulse();
 
     // ── Lazy text-content fetch for pages beyond wordIndex coverage ───────────
@@ -650,11 +604,11 @@ export function PDFViewer({
     const viewer = viewerRef.current;
     if (!viewer) return;
     const n = viewer.pagesCount || 0;
-    // Per-page dirty cache (pageStateKey) makes this O(changed_pages) not O(all).
-    // Viewport filtering removed — it caused highlights to disappear when the
-    // store subscription fired before page layout was complete (offsetTop = 0).
     for (let i = 0; i < n; i++) {
       const pv = viewer.getPageView(i);
+      // pv.div exists for all pages; pv.canvas only for rendered ones.
+      // We can draw on any page that has a div — the overlay canvas persists
+      // independently of the pdfjs canvas.
       if (!pv?.div || !pv.viewport) continue;
       const vp = pv.viewport;
       drawPageOverlay(i + 1, pv.div, vp.width, vp.height);
@@ -729,7 +683,7 @@ export function PDFViewer({
                                             // text layer adds 40-80% render overhead per page
       annotationMode:    0,                // disabled — saves memory + no annotation parse cost
       removePageBorders: true,
-      enableHWA:         true,  // hardware-accelerated rendering — faster image decode
+      enableHWA:         true,  // GPU-accelerated image rendering
       maxCanvasPixels:   MAX_CANVAS_PIXELS,
       // Render only the visible page range — pdfjs default renders ±2 pages
       // which for heavy image PDFs means 5 pages worth of GPU allocation at once.
@@ -784,23 +738,6 @@ export function PDFViewer({
     // a flag — only user-initiated navigation after load should trigger spinner.
     let docFullyLoaded = false;
 
-    // Track zoom-in-progress to skip expensive word-index painting during zoom
-    eventBus.on('scalechanging', () => {
-      isZoomingRef.current = true;
-      if (zoomSettleTimer.current) clearTimeout(zoomSettleTimer.current);
-    });
-    eventBus.on('scalechange', () => {
-      // Zoom settled — allow word-index painting again after short delay
-      // Clear per-page cache since canvas dimensions changed with zoom
-      pageCache.current.clear();
-      if (zoomSettleTimer.current) clearTimeout(zoomSettleTimer.current);
-      zoomSettleTimer.current = setTimeout(() => {
-        isZoomingRef.current = false;
-        // Repaint now that zoom is settled (picks up word index)
-        drawAllRef.current?.();
-      }, 150);
-    });
-
     eventBus.on('pagechanging', (evt: any) => {
       if (!viewerRef.current?.pagesCount) return;
       const newPage = evt.pageNumber;
@@ -821,37 +758,17 @@ export function PDFViewer({
       if (docFullyLoaded) {
         const zm = useAppStore.getState().zoomMode;
         if (zm === 'page-fit' || zm === 'page-width') {
-          // Only reapply scale when adjacent pages have different dimensions
-          // (mixed portrait/landscape). Skipping this on same-size docs removes
-          // one unnecessary reflow per page navigation.
-          const viewer = viewerRef.current;
-          if (viewer) {
-            const prevPg = viewer.getPageView(newPage - 2); // previous page (0-indexed)
-            const currPg = viewer.getPageView(newPage - 1); // current page
-            const prevH  = prevPg?.viewport?.height ?? 0;
-            const currH  = currPg?.viewport?.height ?? 0;
-            const sizeDiffers = Math.abs(prevH - currH) > 2;
-            if (sizeDiffers) {
-              setTimeout(() => {
-                const pv = viewerRef.current;
-                if (!pv) return;
-                pv.currentScaleValue = zm === 'page-fit' ? 'page-fit' : 'page-width';
-              }, 0);
-            }
-          }
+          setTimeout(() => {
+            const pv = viewerRef.current;
+            if (!pv) return;
+            pv.currentScaleValue = zm === 'page-fit' ? 'page-fit' : 'page-width';
+          }, 0);
         }
       }
       // Only show/hide spinner after initial load is complete
       if (!docFullyLoaded) return;
       if (!renderedPages.has(newPage)) {
         useAppStore.getState().setRenderProgress(1);
-        // Force pdfjs to immediately prioritise the target page.
-        // Without this, pdfjs renders all pages in queue order (nearest first)
-        // which on a jump from page 1→15 means pages 13,14,16,17 render first.
-        // update() flushes the render queue and re-prioritises by visibility.
-        requestAnimationFrame(() => {
-          try { viewerRef.current?.update(); } catch (_) {}
-        });
       } else {
         // Already rendered — clear spinner immediately
         useAppStore.getState().setRenderProgress(0);
@@ -895,11 +812,8 @@ export function PDFViewer({
         drawPageOverlay(pageNum, pv.div, vp.width, vp.height);
       });
 
-      // Pre-warm worker with adjacent pages during idle time.
-      // Uses requestIdleCallback — only runs when browser has genuinely nothing to do.
-      // No timeout: if browser stays busy, skip pre-warm entirely (not worth forcing).
-      // getOperatorList() runs in the pdfjs Web Worker (separate thread) so even
-      // when it does run, it cannot block the main thread or user interactions.
+      // Pre-warm worker with next pages during idle — runs in Web Worker,
+      // cannot block main thread. No timeout = only runs when truly idle.
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback((idleDeadline: any) => {
           // Only pre-warm if we have at least 10ms of idle time remaining
