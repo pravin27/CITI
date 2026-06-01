@@ -20,3 +20,18 @@ if (st.persistHighlights) {
             activeFieldId:  realId,
           });
         }
+
+
+
+
+    // Apply same padding as drawBox so pulse aligns with canvas rect:
+    // PAD_TOP=0.08, PAD_BOT=0.05, PAD_W=0.10 (fraction of rect height in page coords)
+    const rH  = pr.height * cH;          // rect height in CSS px
+    const pt  = rH * 0.08;               // top padding
+    const pb  = rH * 0.05;               // bottom padding
+    const pw  = rH * 0.10;               // left+right padding
+    d.style.left   = ((pr.x      * cW) - pw        ).toFixed(1) + 'px';
+    d.style.top    = ((pr.y      * cH) - pt         ).toFixed(1) + 'px';
+    d.style.width  = ((pr.width  * cW) + pw * 2     ).toFixed(1) + 'px';
+    d.style.height = (rH               + pt + pb    ).toFixed(1) + 'px';
+
