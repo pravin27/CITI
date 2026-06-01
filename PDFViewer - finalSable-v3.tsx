@@ -814,13 +814,17 @@ export function PDFViewer({
 
       // Pre-warm worker with next pages during idle — runs in Web Worker,
       // cannot block main thread. No timeout = only runs when truly idle.
+      // Uses __tovPdfDoc (set inside .then()) because this handler is outside
+      // the getDocument().promise.then() scope where doc is defined.
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback((idleDeadline: any) => {
           // Only pre-warm if we have at least 10ms of idle time remaining
           if (idleDeadline.timeRemaining() < 10) return;
+          const pdfjsDoc = (window as any).__tovPdfDoc;
+          if (!pdfjsDoc) return;
           [pageNum + 1, pageNum + 2].forEach(pg => {
-            if (pg >= 1 && pg <= doc.numPages) {
-              doc.getPage(pg).then((p: any) => p.getOperatorList()).catch(() => {});
+            if (pg >= 1 && pg <= pdfjsDoc.numPages) {
+              pdfjsDoc.getPage(pg).then((p: any) => p.getOperatorList()).catch(() => {});
             }
           });
         });
