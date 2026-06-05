@@ -1,0 +1,6 @@
+<div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-auto bg-[#e8e8e8]">
+
+      {/* min-width:fit-content lets the scroll container expand to the widest page.
+          Pages then center via margin:0 auto — not items-center which clips the left. */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    minWidth: 'fit-content', paddingTop: 16, paddingBottom: 16 }}>
