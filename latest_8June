@@ -104,3 +104,133 @@ for (const d of manifest.documents ?? []) {
     }
 
 
+-------------------------------------------------------------------
+
+MultiDocSidebar.tsx
+// mode:multi thumbnail tab — each pageCategories entry = its own accordion group
+  // Preserves order from pageCategories array; same category can appear multiple times
+  interface MultiPageGroup {
+    catId:    string;
+    pages:    number[];
+    groupKey: string;   // unique: catId + position index
+  }
+  const multiPageGroups: MultiPageGroup[] = [];
+  const OTHERS_KEY = '__others__';
+  if (isMultiPage(mode) && activeDoc?.pageCategories) {
+    activeDoc.pageCategories.forEach((pc, idx) => {
+      if (!pc.category) {
+        // No category defined — pages go straight to Others
+        pc.pages.forEach(p => {
+          if (!multiPageGroups.find(g => g.catId === OTHERS_KEY)) {
+            multiPageGroups.push({ catId: OTHERS_KEY, pages: [], groupKey: OTHERS_KEY });
+          }
+          multiPageGroups.find(g => g.catId === OTHERS_KEY)!.pages.push(p);
+        });
+        return;
+      }
+      multiPageGroups.push({
+        catId:    pc.category,
+        pages:    [...pc.pages],
+        groupKey: `${pc.category}__${idx}`,
+      });
+    });
+    // Collect pages not in any entry → Others
+    // Use adPageCount (actual doc page count) not activeDoc.totalPages which
+    // only reflects the max page listed in pageCategories — pages beyond that
+    // range would never be included in Others without this fix.
+    const totalPages = adPageCount > 0 ? adPageCount : (activeDoc.totalPages ?? 0);
+    if (totalPages > 0) {
+      const allListedPages = new Set<number>();
+      activeDoc.pageCategories.forEach(pc => pc.pages.forEach(p => allListedPages.add(p)));
+      const others: number[] = [];
+      for (let p = 1; p <= totalPages; p++) {
+        if (!allListedPages.has(p)) others.push(p);
+      }
+      if (others.length) multiPageGroups.push({ catId: OTHERS_KEY, pages: others, groupKey: OTHERS_KEY });
+    }
+  }
+
+
+TO-Be -->
+
+// mode:multi thumbnail tab — each pageCategories entry = its own accordion group
+  // Preserves order from pageCategories array; same category can appear multiple times
+  interface MultiPageGroup {
+    catId:    string;
+    pages:    number[];
+    groupKey: string;   // unique: catId + position index
+  }
+  const multiPageGroups: MultiPageGroup[] = [];
+  const OTHERS_KEY = '__others__';
+  if (isMultiPage(mode) && activeDoc?.pageCategories) {
+    // Track every page explicitly listed in any pageCategories entry
+    const allListedPages = new Set<number>();
+    activeDoc.pageCategories.forEach(pc => pc.pages.forEach(p => allListedPages.add(p)));
+
+    // Build named category groups — entries with no category are skipped here
+    // (their pages are already in allListedPages so they won't appear in Others)
+    activeDoc.pageCategories.forEach((pc, idx) => {
+      if (!pc.category) return; // no category → pages already captured in allListedPages
+      multiPageGroups.push({
+        catId:    pc.category,
+        pages:    [...pc.pages],
+        groupKey: `${pc.category}__${idx}`,
+      });
+    });
+
+    // Build Others: any page from 1..totalPages not listed in any pageCategories entry.
+    // Use store.pageCount (real loaded page count) so pages beyond the manifest range
+    // are included. Fall back to max(listed pages) until the doc finishes loading.
+    const totalPages = adPageCount > 0 ? adPageCount : (activeDoc.totalPages ?? 0);
+    if (totalPages > 0) {
+      const others: number[] = [];
+      for (let p = 1; p <= totalPages; p++) {
+        if (!allListedPages.has(p)) others.push(p);
+      }
+      if (others.length) {
+        multiPageGroups.push({ catId: OTHERS_KEY, pages: others, groupKey: OTHERS_KEY });
+      }
+    }
+  }
+
+
+MultiDocOutline
+
+{/* Category sub-rows — only mounted when doc is expanded */}
+      {isOpen && doc.pageCategories && (
+        <div style={{ background: '#fff' }}>
+          {doc.pageCategories.map((pc, _pcIdx) => {
+            const cat = catById[pc.category];
+
+TO-Be -->
+{/* Category sub-rows — only mounted when doc is expanded */}
+      {isOpen && doc.pageCategories && (
+        <div style={{ background: '#fff' }}>
+          {doc.pageCategories.map((pc, _pcIdx) => {
+            const cat = catById[pc.category] ?? (
+              // No category defined — treat as Others with grey styling
+              !pc.category ? { id: '__others__', label: 'Others', color: '#4b5563' } : undefined
+            );
+
+
+FieldsPanel
+
+function buildCoordProps(
+  x: number, y: number, w: number, h: number,
+  fmt?: 'flat' | 'bbox' | 'rectangle' | 'coordinates' | 'bbox_relative'
+): Record<string, unknown> {
+
+TO-Be
+function buildCoordProps(
+  x: number, y: number, w: number, h: number,
+  fmt?: 'flat' | 'bbox' | 'rectangle' | 'coordinates' | 'bbox_relative' | 'box_2d'
+): Record<string, unknown> {
+
+--
+case 'box_2d':
+      // FORMAT 11: [y_min, x_min, y_max, x_max] in 0-1000 Gemini grid
+      return { box_2d: [
+        Math.round(yf * 1000), Math.round(xf * 1000),
+        Math.round(y2 * 1000), Math.round(x2 * 1000),
+      ] };
+
