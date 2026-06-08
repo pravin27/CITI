@@ -1,0 +1,106 @@
+
+App.tsx
+-->
+{/* ThumbnailSidebar overlays viewer body — sits below toolbar, does not push viewer */}
+
+TO-BE --> {showDefaultSidebar && <ThumbnailSidebar />}
+
+-->
+{showDefaultSidebar && (
+                <div style={{ position:'absolute', top:0, left:0, bottom:0, zIndex:30, display:'flex' }}>
+                  <ThumbnailSidebar />
+                </div>
+              )}
+
+To-BE -->
+{showDefaultSidebar && <ThumbnailSidebar />}
+
+
+MultiDocsideBAr
+
+ const OTHERS_KEY = '__others__';
+  if (isMultiPage(mode) && activeDoc?.pageCategories) {
+    activeDoc.pageCategories.forEach((pc, idx) => {
+      multiPageGroups.push({
+        catId:    pc.category,
+        pages:    [...pc.pages],           // preserve parent-defined order
+        groupKey: `${pc.category}__${idx}`,
+      });
+    });
+    // Collect pages not in any entry → Others
+    const totalPages = activeDoc.totalPages ?? 0;
+    if (totalPages > 0) {
+
+To-BE -->
+
+const OTHERS_KEY = '__others__';
+  if (isMultiPage(mode) && activeDoc?.pageCategories) {
+    activeDoc.pageCategories.forEach((pc, idx) => {
+      if (!pc.category) {
+        // No category defined — pages go straight to Others
+        pc.pages.forEach(p => {
+          if (!multiPageGroups.find(g => g.catId === OTHERS_KEY)) {
+            multiPageGroups.push({ catId: OTHERS_KEY, pages: [], groupKey: OTHERS_KEY });
+          }
+          multiPageGroups.find(g => g.catId === OTHERS_KEY)!.pages.push(p);
+        });
+        return;
+      }
+      multiPageGroups.push({
+        catId:    pc.category,
+        pages:    [...pc.pages],
+        groupKey: `${pc.category}__${idx}`,
+      });
+    });
+    // Collect pages not in any entry → Others
+    // Use adPageCount (actual doc page count) not activeDoc.totalPages which
+    // only reflects the max page listed in pageCategories — pages beyond that
+    // range would never be included in Others without this fix.
+    const totalPages = adPageCount > 0 ? adPageCount : (activeDoc.totalPages ?? 0);
+    if (totalPages > 0) {
+
+
+const cat = catById[grp.catId] ?? { id: grp.catId, label: grp.catId, color: 'gray' };
+
+TO-BE -->
+// Documents with no category (categoryId undefined → '__none__') are
+          // shown as an "Others" group — same label and grey styling as MultiPage.
+          const isNone = grp.catId === '__none__';
+          const cat = isNone
+            ? { id: '__none__', label: 'Others', color: '#4b5563' }
+            : catById[grp.catId] ?? { id: grp.catId, label: grp.catId, color: 'gray' };
+
+
+ThumbnaiSideBar
+<div style={{ width: 172, display: 'flex', flexDirection: 'column',
+        height: '100%', overflow: 'hidden', position: 'relative',
+
+TO-BE-->
+<div style={{ width: 172, flexShrink: 0, display: 'flex', flexDirection: 'column',
+        height: '100%', overflow: 'hidden', position: 'relative',
+
+
+<div className="flex flex-col h-full overflow-hidden bg-[#f0f2f4] border-r border-[#dde3ea]"
+      style={{ width: 160, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#f0f2f4', borderRight: '1px solid #dde3ea' }}>
+
+TO-BE -->
+<div className="flex flex-col h-full overflow-hidden bg-[#f0f2f4] border-r border-[#dde3ea]"
+      style={{ width: 160, flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#f0f2f4', borderRight: '1px solid #dde3ea' }}>
+
+
+useMultiDoc
+for (const d of manifest.documents ?? []) {
+      if (d.category) referencedCatIds.add(d.category);
+      for (const pc of d.pageCategories ?? []) referencedCatIds.add(pc.category);
+    }
+
+
+TO-Be-->
+for (const d of manifest.documents ?? []) {
+      if (d.category) referencedCatIds.add(d.category);
+      for (const pc of d.pageCategories ?? []) {
+        if (pc.category) referencedCatIds.add(pc.category);
+      }
+    }
+
+
