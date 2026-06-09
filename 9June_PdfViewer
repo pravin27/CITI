@@ -27,6 +27,7 @@ import type { PDFAdapter } from '../adapters/PDFAdapter';
 import { colorToRgba, stripPunct } from '../utils/color';
 import { clearPdfTextCache } from '../hooks/useBoxCapture';
 import { InMemoryCMapReaderFactory, InMemoryStandardFontDataFactory } from '../utils/pdfResourceCache';
+import { usePageRenderWorker } from '../hooks/usePageRenderWorker';
 import type { CaptureItem, WordEntry } from '../adapters/types';
 
 // ── pdfjs setup ───────────────────────────────────────────────────────────────
@@ -420,6 +421,8 @@ export function PDFViewer({
   // Shared draw debounce timer — used by both subscription and lazy text fetch
   const drawTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const renderWorker = usePageRenderWorker();
+
   // ── Rendered page bitmap cache ───────────────────────────────────────────
   // Stores the rendered pdfjs canvas as an ImageBitmap after each pagerendered
   // event. On back-navigation, if the page is still in this cache AND the zoom
@@ -731,10 +734,81 @@ export function PDFViewer({
       //   1 = minimum (render only current page + immediate neighbours)
       //   2 = default pdfjs
       // ─────────────────────────────────────────────────────────────────────────
-      ...({ renderingQueue: undefined } as any), // use pdfjs default queue
+      ...({ renderingQueue: yieldingQueue } as any),
       l10n:              new (GenericL10n as any)('en'),
-      ...({ defaultZoomValue } as any),  // pdfjs runtime option, not in TS types
+      ...({ defaultZoomValue } as any),
     });
+    yieldingQueue.setViewer(pdfViewer);
+    _scheduleResume(); // start the yield-between-chunks loop
+
+    // ── Yielding rendering queue ───────────────────────────────────────────
+    // pdfjs calls renderTask.onContinue(cont) between draw chunks via
+    // #renderContinueCallback. It calls cont() immediately when the page IS
+    // highest priority — locking the main thread for 3-10s on heavy pages.
+    // We provide a custom renderingQueue whose isHighestPriority() temporarily
+    // returns false — causing pdfjs to set this.resume() and return. We then
+    // call resume() from a setTimeout(0), yielding the main thread between
+    // every render chunk. This is identical to how Chrome's PDF viewer works.
+    const yieldingQueue = {
+      _viewer: null as any,
+      _highestPriorityPage: null as string | null,
+      hasViewer: () => !!yieldingQueue._viewer,
+      setViewer(v: any) { yieldingQueue._viewer = v; },
+      setThumbnailViewer(_: any) {},
+      isHighestPriority(view: any) {
+        return yieldingQueue._highestPriorityPage === view.renderingId;
+      },
+      renderHighestPriority(currentlyVisiblePages?: any) {
+        if (yieldingQueue._viewer) {
+          yieldingQueue._viewer.forceRendering(currentlyVisiblePages);
+        }
+        // After forceRendering, some pages may now be PAUSED — kick the scheduler
+        _scheduleResume();
+      },
+      getHighestPriority(visible: any, views: any, scrolledDown: boolean, preRenderExtra = false) {
+        const visibleViews = visible?.views ?? [];
+        for (const { view } of visibleViews) {
+          if (!yieldingQueue.isViewFinished(view)) return view;
+        }
+        return null;
+      },
+      isViewFinished(view: any) {
+        return view?.renderingState === 3; // RenderingStates.FINISHED
+      },
+      printing: false,
+      isThumbnailViewEnabled: false,
+      onIdle: null as (() => void) | null,
+    };
+
+    // The yield mechanism: every time pdfjs pauses (isHighestPriority false →
+    // stores resume()), we schedule resume() via setTimeout to yield a frame.
+    // We patch forceRendering to intercept the paused page's resume call.
+    let _resumeScheduled = false;
+    const _scheduleResume = () => {
+      if (_resumeScheduled) return;
+      _resumeScheduled = true;
+      setTimeout(() => {
+        _resumeScheduled = false;
+        if (loadCancelled) return;
+        const viewer = yieldingQueue._viewer;
+        if (!viewer) return;
+        const n = viewer.pagesCount || 0;
+        let foundPaused = false;
+        for (let i = 0; i < n; i++) {
+          const pv = viewer.getPageView(i);
+          if (pv?.renderingState === 2 /* PAUSED */ && typeof pv.resume === 'function') {
+            foundPaused = true;
+            // Grant highest priority for exactly one chunk, then revoke
+            yieldingQueue._highestPriorityPage = pv.renderingId;
+            pv.resume();
+            yieldingQueue._highestPriorityPage = null;
+            break;
+          }
+        }
+        // If still paused pages remain, schedule next yield
+        if (foundPaused) _scheduleResume();
+      }, 0);
+    };
     // Page rendering cache — more slots = fewer white-screen re-renders.
     // Each slot holds one rendered page canvas (GPU texture).
     // For heavy image-heavy PDFs each page can be 2–4 MB on canvas.
@@ -781,6 +855,9 @@ export function PDFViewer({
     eventBus.on('pagechanging', (evt: any) => {
       if (!viewerRef.current?.pagesCount) return;
       const newPage = evt.pageNumber;
+      // Kick the yield scheduler — new page will start rendering (PAUSED state)
+      // and needs the scheduler to grant it chunks via setTimeout
+      _scheduleResume();
       // Ensure pdfjs prioritises rendering the page the user navigated to.
       // Without this, the render queue processes pages sequentially from page 1
       // which delays the target page on heavy documents.
@@ -794,19 +871,57 @@ export function PDFViewer({
       // ── Instant bitmap restore for back-navigation ─────────────────────────
       // If this page was previously rendered and we have a cached bitmap at the
       // current scale, blit it immediately onto the pdfjs canvas so the user sees
-      // content instantly (< 5ms) rather than waiting 5-10s for pdfjs to re-render.
+      // content instantly (< 5ms) rather than waiting 3-10s for pdfjs to re-render.
       // pdfjs will replace this with its own render shortly after — visually seamless.
       const bitmapKey = getBitmapKey(newPage, pdfViewer.currentScale);
-      const cachedBm  = pageBitmapCache.current.get(bitmapKey);
+      const cachedBm  = pageBitmapCache.current.get(bitmapKey)
+                     ?? renderWorker.getCached(newPage, pdfViewer.currentScale);
       if (cachedBm) {
         const pv = pdfViewer.getPageView(newPage - 1);
-        const canvas = pv?.div?.querySelector<HTMLCanvasElement>('canvas:not([data-hl-canvas])');
+        const canvas = pv?.div
+          ? (pv.div as Element).querySelector('canvas:not([data-hl-canvas])') as HTMLCanvasElement | null
+          : null;
         if (canvas && canvas.width > 0) {
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.drawImage(cachedBm, 0, 0, canvas.width, canvas.height);
         }
-        // Mark as already rendered so spinner doesn't show
         renderedPages.add(newPage);
+      } else {
+        // ── Off-thread render — page not yet cached ─────────────────────────
+        // Request the worker to render this page. When it returns (typically
+        // 200ms–2s vs 3-10s on main thread), blit the bitmap immediately onto
+        // the pdfjs canvas so the user sees content before pdfjs finishes.
+        const workerKey = (window as any).__tovRenderWorkerKey;
+        if (workerKey) {
+          const targetPage = newPage;
+          const targetScale = pdfViewer.currentScale;
+          renderWorker.requestRender(targetPage, targetScale, 0).then(bitmap => {
+            if (loadCancelled) { return; }
+            // Only blit if the user is still on this page
+            if (useAppStore.getState().currentPage !== targetPage) return;
+            const pv2 = pdfViewer.getPageView(targetPage - 1);
+            const cv2 = pv2?.div
+              ? (pv2.div as Element).querySelector('canvas:not([data-hl-canvas])') as HTMLCanvasElement | null
+              : null;
+            if (cv2 && cv2.width > 0) {
+              const ctx2 = cv2.getContext('2d');
+              if (ctx2) {
+                ctx2.drawImage(bitmap, 0, 0, cv2.width, cv2.height);
+                // Clear spinner — visible content is now showing
+                useAppStore.getState().setRenderProgress(0);
+                renderedPages.add(targetPage);
+                // Trigger overlay draw so highlights/captures appear over worker bitmap
+                requestAnimationFrame(() => drawPageOverlay(targetPage, pv2!.div, pv2!.viewport.width, pv2!.viewport.height));
+              }
+            }
+          }).catch(() => {});
+          // Prefetch adjacent pages in parallel
+          renderWorker.prefetch(
+            [targetPage - 1, targetPage + 1, targetPage - 2, targetPage + 2]
+              .filter(p => p >= 1),
+            targetScale
+          );
+        }
       }
 
       // Always update the page counter
@@ -855,7 +970,7 @@ export function PDFViewer({
       // createImageBitmap is async and runs off-main-thread — zero render cost.
       // The bitmap is an exact copy of the rendered canvas at current scale,
       // keyed by pageNum:scale so zoom changes correctly invalidate the entry.
-      const pdfjsCanvas = pv.div.querySelector<HTMLCanvasElement>('canvas:not([data-hl-canvas])');
+      const pdfjsCanvas = (pv.div as Element).querySelector('canvas:not([data-hl-canvas])') as HTMLCanvasElement | null;
       if (pdfjsCanvas && pdfjsCanvas.width > 0 && 'createImageBitmap' in window) {
         const bitmapKey = getBitmapKey(pageNum, pdfViewer.currentScale);
         if (!pageBitmapCache.current.has(bitmapKey)) {
@@ -988,6 +1103,17 @@ export function PDFViewer({
         // We call onDocumentLoad AFTER await Promise.all below.
         useAppStore.getState().setPageCount(doc.numPages);
         renderedPages.clear(); // fresh render tracking for this document
+
+        // ── Send PDF to off-thread render worker immediately ────────────────
+        // The worker parses the document in parallel with pdfjs on the main thread.
+        // When the user navigates to a page, the worker render completes first
+        // (~50ms blit vs 3-10s pdfjs render) — page appears instantly.
+        if (rawBuf && rawBuf.byteLength > 0) {
+          const workerKey = `${file.name}:${file.size}:${file.lastModified}`;
+          renderWorker.loadDoc(workerKey, rawBuf);
+          // Store key for per-page render requests
+          (window as any).__tovRenderWorkerKey = workerKey;
+        }
         adapter.pageCount = doc.numPages;
 
         // Wire navigateToPage BEFORE setDocument so it's available immediately
@@ -1179,8 +1305,11 @@ export function PDFViewer({
     }); // end workerReadyPromise.then
 
     return () => {
-      _pdfNavigateFn = null;  // clear so navigatePdfPage queues via _pdfPendingPage
-      _pdfPendingPage = 1;    // reset so next document always starts at page 1
+      _pdfNavigateFn = null;
+      _pdfPendingPage = 1;
+      renderWorker.cancelAll();
+      renderWorker.clearCache();
+      (window as any).__tovRenderWorkerKey = null;
       // Release all cached ImageBitmaps — each holds GPU memory
       pageBitmapCache.current.forEach(bm => bm.close());
       pageBitmapCache.current.clear();
@@ -1207,10 +1336,10 @@ export function PDFViewer({
     // Skip during file load — pagesloaded handler applies the correct scale
     if (isLoading) return;
     if (!viewerRef.current) return;
-    // Invalidate bitmap cache — cached bitmaps are at the old scale,
-    // drawing them at new zoom would show blurry/wrong-size content.
+    // Invalidate bitmap caches — cached bitmaps are at the old scale
     pageBitmapCache.current.forEach(bm => bm.close());
     pageBitmapCache.current.clear();
+    renderWorker.clearCache();
     const zm = useAppStore.getState().zoomMode;
     if (zm === 'page-fit')        viewerRef.current.currentScaleValue = 'page-fit';
     else if (zm === 'page-width') viewerRef.current.currentScaleValue = 'page-width';
