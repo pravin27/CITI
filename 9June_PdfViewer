@@ -720,35 +720,15 @@ export function PDFViewer({
       initialZoomMode === 'actual'     ? 'page-actual':
       String(useAppStore.getState().zoom);
 
-    const pdfViewer = new PdfjsPDFViewer({
-      container, viewer: viewerDiv, eventBus, linkService, findController,
-      textLayerMode:     0,                // disabled — box capture uses pdfjs getTextContent directly
-                                            // text layer adds 40-80% render overhead per page
-      annotationMode:    0,                // disabled — saves memory + no annotation parse cost
-      removePageBorders: true,
-      enableHWA:         true,  // GPU-accelerated image rendering
-      maxCanvasPixels:   _adaptiveCanvasPixelCap,
-      // Render only the visible page range — pdfjs default renders ±2 pages
-      // which for heavy image PDFs means 5 pages worth of GPU allocation at once.
-      // ─── CHANGE THIS to tune render lookahead ───────────────────────────────
-      //   1 = minimum (render only current page + immediate neighbours)
-      //   2 = default pdfjs
-      // ─────────────────────────────────────────────────────────────────────────
-      ...({ renderingQueue: yieldingQueue } as any),
-      l10n:              new (GenericL10n as any)('en'),
-      ...({ defaultZoomValue } as any),
-    });
-    yieldingQueue.setViewer(pdfViewer);
-    _scheduleResume(); // start the yield-between-chunks loop
+    // ── Yielding rendering queue — declared BEFORE pdfViewer constructor ──────
+    // pdfjs calls #renderContinueCallback between render chunks. It calls cont()
+    // immediately when isHighestPriority() is true — locking the main thread
+    // for 3-10s on heavy pages. We provide a custom renderingQueue where
+    // isHighestPriority() always returns false, so pdfjs stores this.resume()
+    // and yields. We then call resume() from setTimeout(0) — one chunk per frame.
+    let _resumeScheduled = false;
+    let _scheduleResume: () => void; // forward-declared so yieldingQueue can reference it
 
-    // ── Yielding rendering queue ───────────────────────────────────────────
-    // pdfjs calls renderTask.onContinue(cont) between draw chunks via
-    // #renderContinueCallback. It calls cont() immediately when the page IS
-    // highest priority — locking the main thread for 3-10s on heavy pages.
-    // We provide a custom renderingQueue whose isHighestPriority() temporarily
-    // returns false — causing pdfjs to set this.resume() and return. We then
-    // call resume() from a setTimeout(0), yielding the main thread between
-    // every render chunk. This is identical to how Chrome's PDF viewer works.
     const yieldingQueue = {
       _viewer: null as any,
       _highestPriorityPage: null as string | null,
@@ -762,29 +742,48 @@ export function PDFViewer({
         if (yieldingQueue._viewer) {
           yieldingQueue._viewer.forceRendering(currentlyVisiblePages);
         }
-        // After forceRendering, some pages may now be PAUSED — kick the scheduler
         _scheduleResume();
       },
-      getHighestPriority(visible: any, views: any, scrolledDown: boolean, preRenderExtra = false) {
+      getHighestPriority(visible: any, _views: any, _scrolledDown: boolean) {
         const visibleViews = visible?.views ?? [];
         for (const { view } of visibleViews) {
           if (!yieldingQueue.isViewFinished(view)) return view;
         }
         return null;
       },
-      isViewFinished(view: any) {
-        return view?.renderingState === 3; // RenderingStates.FINISHED
+      isViewFinished(view: any) { return view?.renderingState === 3; },
+      renderView(view: any): boolean {
+        // RenderingStates: FINISHED=3, PAUSED=2, RUNNING=1, INITIAL=0
+        switch (view.renderingState) {
+          case 3: // FINISHED
+            return false;
+          case 2: // PAUSED — resume via scheduler (yields main thread)
+            _scheduleResume();
+            return true;
+          case 1: // RUNNING
+            yieldingQueue._highestPriorityPage = view.renderingId;
+            return true;
+          case 0: // INITIAL — start drawing, then schedule yield loop
+          default:
+            yieldingQueue._highestPriorityPage = view.renderingId;
+            view.draw().finally(() => {
+              yieldingQueue._highestPriorityPage = null;
+              yieldingQueue.renderHighestPriority();
+            }).catch((err: any) => {
+              // RenderingCancelledException is expected on navigation — ignore
+              if (err?.name !== 'RenderingCancelledException') {
+                console.error('[yieldingQueue] renderView draw error:', err);
+              }
+            });
+            return true;
+        }
       },
       printing: false,
       isThumbnailViewEnabled: false,
       onIdle: null as (() => void) | null,
     };
 
-    // The yield mechanism: every time pdfjs pauses (isHighestPriority false →
-    // stores resume()), we schedule resume() via setTimeout to yield a frame.
-    // We patch forceRendering to intercept the paused page's resume call.
-    let _resumeScheduled = false;
-    const _scheduleResume = () => {
+    _scheduleResume = () => {
       if (_resumeScheduled) return;
       _resumeScheduled = true;
       setTimeout(() => {
@@ -798,18 +797,28 @@ export function PDFViewer({
           const pv = viewer.getPageView(i);
           if (pv?.renderingState === 2 /* PAUSED */ && typeof pv.resume === 'function') {
             foundPaused = true;
-            // Grant highest priority for exactly one chunk, then revoke
             yieldingQueue._highestPriorityPage = pv.renderingId;
             pv.resume();
             yieldingQueue._highestPriorityPage = null;
             break;
           }
         }
-        // If still paused pages remain, schedule next yield
         if (foundPaused) _scheduleResume();
       }, 0);
     };
-    // Page rendering cache — more slots = fewer white-screen re-renders.
+
+    const pdfViewer = new PdfjsPDFViewer({
+      container, viewer: viewerDiv, eventBus, linkService, findController,
+      textLayerMode:     0,
+      annotationMode:    0,
+      removePageBorders: true,
+      enableHWA:         true,
+      maxCanvasPixels:   _adaptiveCanvasPixelCap,
+      ...({ renderingQueue: yieldingQueue } as any),
+      l10n:              new (GenericL10n as any)('en'),
+      ...({ defaultZoomValue } as any),
+    });
+    yieldingQueue.setViewer(pdfViewer);
     // Each slot holds one rendered page canvas (GPU texture).
     // For heavy image-heavy PDFs each page can be 2–4 MB on canvas.
     // 120 slots gives ~240 MB headroom — covers most back-navigation distances.
